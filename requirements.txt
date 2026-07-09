@@ -1,0 +1,15 @@
+# Backend API (FastAPI)
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+
+# Data / ML — used by src/ (feature selection, training, evaluation)
+pandas
+numpy
+torch
+scikit-learn
+xgboost
+lightgbm
+pyarrow
+openpyxl
