@@ -19,6 +19,7 @@ from backend.app.api.routes import (
     predict,
     preprocess,
     training,
+    what_if,
 )
 from backend.app.core.config import CORS_ORIGINS
 
@@ -46,6 +47,7 @@ app.include_router(preprocess.router, prefix="/api")
 app.include_router(feature_selection.router, prefix="/api")
 app.include_router(training.router, prefix="/api")
 app.include_router(predict.router, prefix="/api")
+app.include_router(what_if.router, prefix="/api")
 
 
 @app.get("/api/health")

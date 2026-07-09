@@ -62,6 +62,19 @@ MAX_SWEEP_POINTS: int = 500
 TREND_EPSILON: float = 1e-5
 
 # ---------------------------------------------------------------------------
+# What-If Analysis module (src/whatif/*) — file-based config/model locations.
+# Kept separate from MODEL_DIR/DB_PATH: this is a different, Excel/pickle-
+# based persistence world shared with the standalone Scripts/ what-if app,
+# not the dashboard.db / saved_models world used elsewhere in this file.
+# ---------------------------------------------------------------------------
+WHATIF_DATA_DIR: str = "Data"
+WHATIF_RESULTS_DIR: str = "Results"
+WHATIF_MODEL_DIR: str = "Results/Model"
+WHATIF_CONFIG_FILE: str = "Data/Config_file.xlsx"
+WHATIF_TRAINING_WORKBOOK: str = "Data/DMC_Screen_tags_data.xlsx"
+WHATIF_HISTORIAN_FILE: str = "Results/Raw_data_plus_simulated_data.xlsx"
+
+# ---------------------------------------------------------------------------
 # Feature Selection Scoring
 # ---------------------------------------------------------------------------
 # Component weights (sum = 1.0)

@@ -57,7 +57,7 @@ export function UploadPage() {
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <button onClick={() => navigate('/preprocess')}>Continue to Data Health Assessment →</button>
             <button className="chip" onClick={handleUploadAnother}>Upload Another Dataset</button>
-            <button className="chip" onClick={() => navigate('/')}>← Back</button>
+            <button className="chip" onClick={() => navigate('/soft-sensor-overview')}>← Back</button>
           </div>
         </>
       )}

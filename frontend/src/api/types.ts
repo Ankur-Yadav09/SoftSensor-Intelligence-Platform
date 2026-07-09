@@ -180,3 +180,96 @@ export interface PredictResult {
   has_actuals: boolean
   metrics: Record<string, unknown>[] | null
 }
+
+// ---------------------------------------------------------------------------
+// What-If Analysis module
+// ---------------------------------------------------------------------------
+
+export interface WhatIfConfigStatus {
+  pi_mapping_present: boolean
+  pi_mapping_row_count: number
+  model_details_present: boolean
+  model_details_row_count: number
+  source_path: string | null
+}
+
+export interface PiMappingRow {
+  Pi_tags: string
+  'Generalized Description': string
+  Section: string
+}
+
+export interface ModelDetailsRow {
+  'Predicted parameter': string
+  [key: string]: string | undefined
+}
+
+export interface DetectedCounts {
+  cgc_max: number
+  prc_max: number
+  erc_max: number
+  furnace_max: number
+}
+
+export interface GenerateMappingResult {
+  rows: PiMappingRow[]
+  section_counts: Record<string, number>
+  wizard_selection: Record<string, unknown>
+}
+
+export interface ModelMappingResult {
+  rows: ModelDetailsRow[]
+  historian_tags: string[]
+}
+
+export interface TrainingDataUploadResult {
+  saved: boolean
+  sheets_found: string[]
+  missing_sheets: string[]
+}
+
+export interface WhatIfModelStatus {
+  all_present: boolean
+  tags_ok: string[]
+  tags_missing: string[]
+  pkl_count: number
+}
+
+export interface TagOptionsResult {
+  tags: string[]
+  all_tags: string[]
+  source: 'wizard' | 'config' | 'historian'
+  limits: Record<string, { lower: number; upper: number }>
+}
+
+export interface WhatIfScenarioRow {
+  parameter: string
+  actual: unknown
+  estimated: unknown
+  change: number | null
+}
+
+export interface WhatIfKpi {
+  tag: string
+  actual: number
+  estimated: number
+  change: number
+}
+
+export interface WhatIfScenarioResult {
+  constraint_hit: boolean
+  constraint_message: string | null
+  rows: WhatIfScenarioRow[]
+  kpis: WhatIfKpi[]
+}
+
+export interface ValidationFilterCriterion {
+  min?: number | null
+  max?: number | null
+  values?: unknown[] | null
+}
+
+export interface ValidationFilterResult {
+  rows: Record<string, unknown>[]
+  match_count: number
+}

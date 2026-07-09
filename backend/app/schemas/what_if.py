@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel
+
+
+class ConfigStatusResponse(BaseModel):
+    pi_mapping_present: bool
+    pi_mapping_row_count: int
+    model_details_present: bool
+    model_details_row_count: int
+    source_path: Optional[str] = None
+
+
+class RowsResponse(BaseModel):
+    rows: List[Dict[str, Any]]
+
+
+class GenerateMappingRequest(BaseModel):
+    cgc_stages: int = 0
+    prc_stages: int = 0
+    erc_stages: int = 0
+    furnaces: int = 0
+
+
+class GenerateMappingResponse(BaseModel):
+    rows: List[Dict[str, Any]]
+    section_counts: Dict[str, int]
+    wizard_selection: Dict[str, Any]
+
+
+class DetectedCountsResponse(BaseModel):
+    cgc_max: int
+    prc_max: int
+    erc_max: int
+    furnace_max: int
+
+
+class MappingRowsRequest(BaseModel):
+    rows: List[Dict[str, Any]]
+
+
+class ModelMappingResponse(BaseModel):
+    rows: List[Dict[str, Any]]
+    historian_tags: List[str]
+
+
+class ConfigExportRequest(BaseModel):
+    pi_mapping_rows: List[Dict[str, Any]]
+    model_details_rows: List[Dict[str, Any]]
+    format: str = "xlsx"  # "xlsx" | "csv"
+
+
+class TrainingDataUploadResponse(BaseModel):
+    saved: bool
+    sheets_found: List[str]
+    missing_sheets: List[str]
+
+
+class ModelStatusResponse(BaseModel):
+    all_present: bool
+    tags_ok: List[str]
+    tags_missing: List[str]
+    pkl_count: int
+
+
+class TagOptionsRequest(BaseModel):
+    # Wizard-generated tags, held client-side since there's no server session
+    # in this design (see plan Section 6: config/mapping endpoints all take
+    # full state per-request rather than relying on session state).
+    generated_tags: List[str] = []
+
+
+class TagOptionsResponse(BaseModel):
+    tags: List[str]
+    all_tags: List[str]
+    source: str  # "wizard" | "config" | "historian"
+    limits: Dict[str, Dict[str, float]]
+
+
+class DatesResponse(BaseModel):
+    dates: List[str]
+
+
+class TimestampsResponse(BaseModel):
+    timestamps: List[str]
+
+
+class BaselineResponse(BaseModel):
+    values: Dict[str, Any]
+
+
+class OverrideInput(BaseModel):
+    parameter: str
+    value: float
+
+
+class WhatIfScenarioRequest(BaseModel):
+    timestamp: str
+    overrides: List[OverrideInput] = []
+    write_actual_vs_estimated_xlsx: bool = False
+
+
+class WhatIfScenarioRow(BaseModel):
+    parameter: str
+    actual: Any = None
+    estimated: Any = None
+    change: Optional[float] = None
+
+
+class WhatIfKpi(BaseModel):
+    tag: str
+    actual: float
+    estimated: float
+    change: float
+
+
+class WhatIfScenarioResponse(BaseModel):
+    constraint_hit: bool
+    constraint_message: Optional[str] = None
+    rows: List[WhatIfScenarioRow]
+    kpis: List[WhatIfKpi]
+
+
+class ValidationFilterCriterion(BaseModel):
+    min: Optional[float] = None
+    max: Optional[float] = None
+    values: Optional[List[Any]] = None
+
+
+class ValidationFilterRequest(BaseModel):
+    filters: Dict[str, ValidationFilterCriterion]
+
+
+class ValidationFilterResponse(BaseModel):
+    rows: List[Dict[str, Any]]
+    match_count: int
+
+
+class WhatIfExportCsvRequest(BaseModel):
+    timestamp: str
+    rows: List[WhatIfScenarioRow]
+    validation_rows: Optional[List[Dict[str, Any]]] = None
