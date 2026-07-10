@@ -43,7 +43,7 @@ export function AppOverviewPage() {
         </div>
 
         <div className="card" style={{ flex: 1, minWidth: 320, padding: '1.5rem' }}>
-          <h2 style={{ fontSize: '1.15rem', marginTop: 0 }}>🧭 What-If Analysis Module</h2>
+          <h2 style={{ fontSize: '1.15rem', marginTop: 0 }}>🧭 What-If Studio</h2>
           <div style={{ marginBottom: '1rem' }}>
             <StatusCard
               label="Setup Status"
@@ -53,7 +53,7 @@ export function AppOverviewPage() {
             />
           </div>
           <Link to="/what-if/overview">
-            <button>Go to What-If Analysis Module →</button>
+            <button>Go to What-If Studio →</button>
           </Link>
         </div>
       </div>

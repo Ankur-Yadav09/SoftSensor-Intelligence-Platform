@@ -34,7 +34,7 @@ const NAV_ENTRIES: NavEntry[] = [
     ],
   },
   {
-    label: 'What-If Analysis Module',
+    label: 'What-If Studio',
     items: [
       { to: '/what-if/overview', label: 'Overview', icon: '📖' },
       { to: '/what-if/case-setup', label: 'What-If Case Setup', icon: '🧙' },
