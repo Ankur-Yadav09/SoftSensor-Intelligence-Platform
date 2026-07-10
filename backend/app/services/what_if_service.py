@@ -13,6 +13,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -65,14 +66,30 @@ def _load_historian() -> pd.DataFrame:
 def _atomic_write_bytes(path: str, data: bytes) -> None:
     """Temp-file-then-os.replace() write, to avoid a concurrent reader seeing
     a partially-written file. There is still no cross-request lock — Phase 1
-    assumes a single engineer configuring at a time (documented limitation)."""
+    assumes a single engineer configuring at a time (documented limitation).
+
+    On Windows, os.replace() can fail with PermissionError/WinError 5 if the
+    destination is transiently locked by another process (Excel has it open,
+    antivirus scanning it, OneDrive/cloud-sync briefly holding it if this repo
+    lives under a synced folder like Desktop) — even though the file was fully
+    readable moments earlier. That's a real, observed failure mode here (not
+    hypothetical), so retry briefly before giving up rather than surfacing an
+    opaque, uncaught 500 to the caller."""
     directory = os.path.dirname(path)
     os.makedirs(directory, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".tmp_", suffix=os.path.splitext(path)[1])
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        os.replace(tmp_path, path)
+        last_error: OSError | None = None
+        for attempt in range(5):
+            try:
+                os.replace(tmp_path, path)
+                return
+            except OSError as e:
+                last_error = e
+                time.sleep(0.2 * (attempt + 1))
+        raise last_error
     except Exception:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -113,7 +130,17 @@ async def upload_config(file: UploadFile) -> schemas.ConfigStatusResponse:
         pd.ExcelFile(io.BytesIO(data))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"Could not parse workbook: {e}")
-    _atomic_write_bytes(paths.config_file(), data)
+    try:
+        _atomic_write_bytes(paths.config_file(), data)
+    except OSError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"The workbook was read successfully, but saving it to {paths.config_file()} failed: {e}. "
+                "This usually means the file is currently open in Excel or being synced by OneDrive/cloud "
+                "storage — close it and try again."
+            ),
+        )
     return get_config_status()
 
 
@@ -222,7 +249,17 @@ async def upload_training_data(file: UploadFile) -> schemas.TrainingDataUploadRe
             saved=False, sheets_found=list(xl.sheet_names), missing_sheets=missing,
         )
 
-    _atomic_write_bytes(paths.training_workbook(), data)
+    try:
+        _atomic_write_bytes(paths.training_workbook(), data)
+    except OSError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"The workbook was read successfully, but saving it to {paths.training_workbook()} failed: {e}. "
+                "This usually means the file is currently open in Excel or being synced by OneDrive/cloud "
+                "storage — close it and try again."
+            ),
+        )
     return schemas.TrainingDataUploadResponse(saved=True, sheets_found=list(xl.sheet_names), missing_sheets=[])
 
 

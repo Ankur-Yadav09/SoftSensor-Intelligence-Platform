@@ -85,14 +85,26 @@ def _read_sheet(xl: pd.ExcelFile, sheet_name: str) -> pd.DataFrame:
 
 def load_all_config(path: str) -> WhatIfConfig:
     """Reads every recognised sheet from Config_file.xlsx once. Unknown/unused
-    sheets (process_param_stats, Model details_copy) are silently ignored."""
-    xl = pd.ExcelFile(path)
+    sheets (process_param_stats, Model details_copy) are silently ignored.
+
+    Uses `with` to explicitly close the underlying OS file handle as soon as
+    reading is done. pd.ExcelFile(path) opened from a string path does NOT
+    reliably release its Windows file handle just because the object goes out
+    of scope — it depends on the cyclic GC running, not plain refcounting,
+    since the ExcelFile/openpyxl workbook hold circular references to each
+    other. Without an explicit close, every call to this function (which is
+    every What-If Studio config/wizard endpoint) leaks a handle on
+    Config_file.xlsx; since these endpoints are hit constantly (React Query
+    refetch-on-focus, wizard actions, etc.), the file stays locked almost
+    continuously, causing uploads/replacements of this same file to fail with
+    a persistent (not transient) WinError 5 Access Denied."""
     found: dict[str, pd.DataFrame] = {}
-    for sheet in xl.sheet_names:
-        field = match_sheet_to_field(sheet)
-        if field is None or field in found:
-            continue
-        found[field] = _read_sheet(xl, sheet)
+    with pd.ExcelFile(path) as xl:
+        for sheet in xl.sheet_names:
+            field = match_sheet_to_field(sheet)
+            if field is None or field in found:
+                continue
+            found[field] = _read_sheet(xl, sheet)
 
     user_inputs_df = found.get("user_inputs_df", pd.DataFrame(columns=USER_INPUTS_COLUMNS))
     constraints_df = found.get("constraints_df", pd.DataFrame(columns=CONSTRAINTS_COLUMNS))
