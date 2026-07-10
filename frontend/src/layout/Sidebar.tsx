@@ -26,11 +26,11 @@ const NAV_ENTRIES: NavEntry[] = [
     label: 'Soft Sensor Module',
     items: [
       { to: '/soft-sensor-overview', label: 'Overview', icon: '📈' },
-      { to: '/upload', label: 'Connect Process Data', icon: '📤' },
-      { to: '/preprocess', label: 'Preprocessing', icon: '⚙️' },
-      { to: '/feature-selection', label: 'Feature Selection', icon: '🔍' },
-      { to: '/train', label: 'Train Model', icon: '🧠' },
-      { to: '/predict', label: 'Predict', icon: '🔮' },
+      { to: '/upload', label: 'Connect Data', icon: '📤' },
+      { to: '/preprocess', label: 'Data Health', icon: '⚙️' },
+      { to: '/feature-selection', label: 'Feature Discovery', icon: '🔍' },
+      { to: '/train', label: 'Build Model', icon: '🧠' },
+      { to: '/predict', label: 'Prediction', icon: '🔮' },
     ],
   },
   {
