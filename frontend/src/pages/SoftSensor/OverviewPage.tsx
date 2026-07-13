@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getModelPerformance, getOverview } from '../../api/overview'
 import { Callout } from '../../components/Callout'
 import { DataTable } from '../../components/DataTable'
@@ -12,6 +13,7 @@ import type { SavedModelSummary } from '../../api/types'
 // Soft Sensor module's own overview, now that '/' is the whole-app overview
 // (see pages/Overview/AppOverviewPage.tsx).
 export function SoftSensorOverviewPage() {
+  const navigate = useNavigate()
   const overviewQuery = useQuery({ queryKey: ['overview'], queryFn: getOverview })
 
   const mostRecentModel = useMemo(() => {
@@ -164,6 +166,10 @@ export function SoftSensorOverviewPage() {
       </div>
 
       <WorkflowGuide />
+
+      <div>
+        <button onClick={() => navigate('/upload')}>Continue to Connect Data →</button>
+      </div>
     </div>
   )
 }

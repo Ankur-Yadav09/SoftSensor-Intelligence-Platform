@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 
 interface NavLeaf {
   to: string
@@ -93,12 +94,27 @@ function NavItem({ item }: { item: NavLeaf }) {
 }
 
 export function Sidebar() {
+  const location = useLocation()
+  const navRef = useRef<HTMLElement>(null)
+
+  // The sidebar scrolls internally on shorter viewports (see the aside's
+  // overflowY:auto below); on navigation, bring the newly-active item into
+  // view within that scroll area instead of leaving the user to find it —
+  // NavLink already marks the active link with aria-current="page".
+  useEffect(() => {
+    const activeLink = navRef.current?.querySelector('a[aria-current="page"]')
+    activeLink?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [location.pathname])
+
   return (
     <aside
       style={{
         width: 248,
         flexShrink: 0,
-        minHeight: '100vh',
+        position: 'sticky',
+        top: 0,
+        height: '100vh',
+        overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column',
         background: `linear-gradient(180deg, var(--sidebar-top) 0%, var(--sidebar-mid) 50%, var(--sidebar-top) 100%)`,
@@ -147,7 +163,7 @@ export function Sidebar() {
           </div>
         </div>
       </div>
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+      <nav ref={navRef} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
         {NAV_ENTRIES.map((entry) =>
           isGroup(entry) ? (
             <div key={entry.label} style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
