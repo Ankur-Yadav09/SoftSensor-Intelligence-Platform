@@ -49,6 +49,14 @@ def historian_file() -> str:
     return _abs(settings.WHATIF_HISTORIAN_FILE)
 
 
+def scripts_dir() -> str:
+    return _abs("Scripts")
+
+
+def whatif_train_script() -> str:
+    return os.path.join(scripts_dir(), "Model_development_and_static_whatif_testing.py")
+
+
 def actual_vs_estimated_file(suffix: str) -> str:
     """Per-request output filename (never the fixed original name, to avoid
     concurrent-request overwrites — see engine.py's write_actual_vs_estimated_xlsx)."""

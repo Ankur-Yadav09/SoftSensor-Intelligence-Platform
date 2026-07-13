@@ -74,6 +74,12 @@ def models_status() -> schemas.ModelStatusResponse:
     return what_if_service.get_models_status()
 
 
+@router.post("/models/train", response_model=schemas.TrainModelsResponse, status_code=202)
+def models_train() -> schemas.TrainModelsResponse:
+    job_id = what_if_service.train_models()
+    return schemas.TrainModelsResponse(job_id=job_id)
+
+
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------

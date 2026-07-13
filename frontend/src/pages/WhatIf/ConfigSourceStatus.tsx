@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { uploadConfig } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
+import { StepHeading } from '../../components/StepHeading'
 import type { WhatIfConfigStatus } from '../../api/types'
 
 interface ConfigSourceStatusProps {
@@ -30,7 +31,7 @@ export function ConfigSourceStatus({ status, onUploaded }: ConfigSourceStatusPro
 
   return (
     <div className="card" style={{ padding: '1.5rem' }}>
-      <h3 style={{ marginTop: 0 }}>🎛️ Configuration Source</h3>
+      <StepHeading step={1} title="Configuration Source" />
 
       {piOk || modelOk ? (
         <Callout variant="success">

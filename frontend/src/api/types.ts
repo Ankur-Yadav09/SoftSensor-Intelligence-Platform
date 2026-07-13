@@ -233,6 +233,23 @@ export interface WhatIfModelStatus {
   tags_ok: string[]
   tags_missing: string[]
   pkl_count: number
+  required_pkl_count: number
+  raw_sim_present: boolean
+  training_data_present: boolean
+  model_mapping_filled: boolean
+  can_train: boolean
+  train_blockers: string[]
+  training_required: boolean
+}
+
+export interface WhatIfTrainResult {
+  success: boolean
+  returncode: number
+  stdout_tail: string
+  stderr_tail: string
+  pkl_count: number
+  all_present: boolean
+  raw_sim_present: boolean
 }
 
 export interface TagOptionsResult {

@@ -63,6 +63,27 @@ class ModelStatusResponse(BaseModel):
     tags_ok: List[str]
     tags_missing: List[str]
     pkl_count: int
+    required_pkl_count: int
+    raw_sim_present: bool
+    training_data_present: bool
+    model_mapping_filled: bool
+    can_train: bool
+    train_blockers: List[str]
+    training_required: bool
+
+
+class TrainModelsResponse(BaseModel):
+    job_id: str
+
+
+class TrainModelsResult(BaseModel):
+    success: bool
+    returncode: int
+    stdout_tail: str
+    stderr_tail: str
+    pkl_count: int
+    all_present: bool
+    raw_sim_present: bool
 
 
 class TagOptionsRequest(BaseModel):

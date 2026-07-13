@@ -10,6 +10,7 @@ import {
   commitMapping as commitMappingApi,
 } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
+import { StepHeading } from '../../components/StepHeading'
 import { Tabs } from '../../components/Tabs'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
 import { ConfigSourceStatus } from './ConfigSourceStatus'
@@ -57,13 +58,23 @@ export function CaseSetupPage() {
     setGeneratedTags([])
   }
 
+  // Unchanged gate: PI Tag Mapping + Model Mapping present, and all trained
+  // Kalman models detected — same formula as before, just consumed by
+  // ModelStatusPanel's "Continue to Scenario Dashboard" action instead of a
+  // separate card at the bottom of the page.
   const canProceed =
     !!configStatusQuery.data?.pi_mapping_present &&
     !!configStatusQuery.data?.model_details_present &&
     !!modelStatusQuery.data?.all_present
 
+  function proceedToDashboard() {
+    queryClient.invalidateQueries({ queryKey: ['whatif-config-status'] })
+    queryClient.invalidateQueries({ queryKey: ['whatif-models-status'] })
+    navigate('/what-if/dashboard')
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <h1>What-If Case Setup</h1>
       <p className="caption">
         Configure the plant tag mapping and confirm trained models are available before running scenarios on the
@@ -82,6 +93,14 @@ export function CaseSetupPage() {
           onReset={resetMapping}
           onGenerate={(counts) => generateMutation.mutate(counts)}
         />
+        {generateMutation.isError && (
+          <div style={{ marginTop: '1rem' }}>
+            <Callout variant="error">
+              {(generateMutation.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+                'Failed to generate the PI mapping for this line-up.'}
+            </Callout>
+          </div>
+        )}
         <div style={{ marginTop: '1.5rem' }}>
           <MappingPreviewGrid
             rows={mappingRows}
@@ -96,7 +115,7 @@ export function CaseSetupPage() {
       <TrainingDataUpload />
 
       <div className="card" style={{ padding: '1.5rem' }}>
-        <h3 style={{ marginTop: 0 }}>⚙️ Configuration Editors</h3>
+        <StepHeading step={4} title="Configuration Editors" />
         {configUploadedThisSession ? (
           <Tabs
             tabs={[
@@ -117,25 +136,12 @@ export function CaseSetupPage() {
         )}
       </div>
 
-      <ModelStatusPanel status={modelStatusQuery.data} isLoading={modelStatusQuery.isLoading} />
-
-      <div className="card" style={{ padding: '1.5rem' }}>
-        <button
-          disabled={!canProceed}
-          onClick={() => {
-            queryClient.invalidateQueries({ queryKey: ['whatif-config-status'] })
-            queryClient.invalidateQueries({ queryKey: ['whatif-models-status'] })
-            navigate('/what-if/dashboard')
-          }}
-        >
-          🚀 Proceed to What-If Dashboard
-        </button>
-        {!canProceed && (
-          <p className="caption" style={{ marginTop: '0.5rem' }}>
-            Requires: PI Tag Mapping present, Model Mapping present, and all trained Kalman models detected.
-          </p>
-        )}
-      </div>
+      <ModelStatusPanel
+        status={modelStatusQuery.data}
+        isLoading={modelStatusQuery.isLoading}
+        canProceed={canProceed}
+        onProceed={proceedToDashboard}
+      />
     </div>
   )
 }

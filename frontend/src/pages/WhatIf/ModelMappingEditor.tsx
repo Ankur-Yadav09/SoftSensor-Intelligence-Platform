@@ -5,6 +5,7 @@ import { Callout } from '../../components/Callout'
 import type { ModelDetailsRow } from '../../api/types'
 
 const INPUT_COLS = Array.from({ length: 8 }, (_, i) => `Input parameter_${i + 1}`)
+const STICKY_COL_WIDTH = 200
 
 export function ModelMappingEditor() {
   const queryClient = useQueryClient()
@@ -35,28 +36,41 @@ export function ModelMappingEditor() {
     <div>
       <p className="caption">
         Maps each predicted parameter to the ordered input feature tags its Kalman model consumes. "Predicted
-        parameter" is read-only; input columns are chosen from the historian tag list.
+        parameter" is read-only and stays pinned on the left while the 8 input columns scroll; each is chosen from
+        the historian tag list.
       </p>
-      <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
-        <table>
+      <div className="data-table-scroll" style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
+        <table className="table-compact">
           <thead>
             <tr>
-              <th>Predicted parameter</th>
-              {INPUT_COLS.map((c) => (
-                <th key={c}>{c}</th>
+              <th className="sticky-col" style={{ minWidth: STICKY_COL_WIDTH }}>
+                Predicted parameter
+              </th>
+              {INPUT_COLS.map((c, i) => (
+                <th key={c} title={c}>
+                  In {i + 1}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {rows.map((row, i) => (
               <tr key={row['Predicted parameter']}>
-                <td>{row['Predicted parameter']}</td>
+                <td className="sticky-col" style={{ minWidth: STICKY_COL_WIDTH, fontWeight: 600 }}>
+                  {row['Predicted parameter']}
+                </td>
                 {INPUT_COLS.map((c) => (
                   <td key={c}>
-                    <select value={row[c] ?? ''} onChange={(e) => updateCell(i, c, e.target.value)}>
+                    <select
+                      value={row[c] ?? ''}
+                      onChange={(e) => updateCell(i, c, e.target.value)}
+                      style={{ width: 165 }}
+                    >
                       <option value="">—</option>
                       {historianTags.map((t) => (
-                        <option key={t} value={t}>{t}</option>
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
                       ))}
                     </select>
                   </td>

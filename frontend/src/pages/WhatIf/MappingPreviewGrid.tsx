@@ -66,8 +66,8 @@ export function MappingPreviewGrid({ rows, onChange, onCommit, modelDetailsRows,
         </select>
       </div>
 
-      <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
-        <table>
+      <div className="data-table-scroll" style={{ overflowX: 'auto', maxHeight: 320, overflowY: 'auto' }}>
+        <table className="table-compact">
           <thead>
             <tr>
               <th>Pi_tags</th>
@@ -85,7 +85,7 @@ export function MappingPreviewGrid({ rows, onChange, onCommit, modelDetailsRows,
                     value={row.Pi_tags}
                     placeholder="fill in raw PI tag"
                     onChange={(e) => updateRow(i, 'Pi_tags', e.target.value)}
-                    style={{ width: 220 }}
+                    style={{ width: 170 }}
                   />
                 </td>
                 <td>
@@ -93,7 +93,7 @@ export function MappingPreviewGrid({ rows, onChange, onCommit, modelDetailsRows,
                     type="text"
                     value={row['Generalized Description']}
                     onChange={(e) => updateRow(i, 'Generalized Description', e.target.value)}
-                    style={{ width: 260 }}
+                    style={{ width: 200 }}
                   />
                 </td>
                 <td>

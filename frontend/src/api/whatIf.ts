@@ -96,6 +96,11 @@ export async function getModelsStatus(): Promise<WhatIfModelStatus> {
   return data
 }
 
+export async function trainModels(): Promise<string> {
+  const { data } = await apiClient.post<{ job_id: string }>('/what-if/models/train')
+  return data.job_id
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------

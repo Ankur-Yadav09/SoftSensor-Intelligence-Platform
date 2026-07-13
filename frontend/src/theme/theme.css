@@ -158,12 +158,54 @@ tr:last-child td {
 .scroll-rows-5 thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
 }
 
 .scroll-rows-5 {
   max-height: 260px;
   overflow-y: auto;
+}
+
+/* Denser grid for spreadsheet-like config editors (Model Mapping, PI
+   Mapping preview) — smaller padding/font than the default table so more
+   columns fit before horizontal scrolling kicks in. */
+.table-compact th,
+.table-compact td {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+/* Freezes a table's first column while the rest scrolls horizontally
+   (used by ModelMappingEditor, whose "Predicted parameter" row label must
+   stay visible while scrolling through up to 8 input-tag columns). Apply
+   to the container's first th/td. */
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-page);
+  box-shadow: 1px 0 0 var(--border);
+}
+/* The corner cell (sticky top AND left) must outrank both plain sticky
+   header cells (z-index:2 above) and the sticky body column (z-index:1).
+   Note: `thead .sticky-col` alone is NOT specific enough to win against
+   `.data-table-scroll thead th` (1 class + 2 types beats 1 class + 1 type),
+   so it silently lost this z-index override before — matching the table's
+   own scroll-container class here restores the higher specificity. */
+.data-table-scroll thead th.sticky-col,
+.scroll-rows-5 thead th.sticky-col {
+  z-index: 3;
+  background: var(--bg-subtle);
+}
+/* The base `table { overflow: hidden }` rule above clips to rounded corners,
+   but it also becomes the nearest ancestor with a non-visible overflow —
+   which position:sticky treats as the cell's scroll container instead of
+   the actual scrolling wrapper div, silently breaking the freeze. Tables
+   with a frozen column need that overflow reset so sticky resolves against
+   the real scrolling ancestor. */
+table:has(.sticky-col) {
+  overflow: visible;
 }
 
 .metric-value {

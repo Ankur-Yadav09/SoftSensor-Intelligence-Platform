@@ -11,6 +11,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -22,17 +24,40 @@ from fastapi import HTTPException, UploadFile
 from src.whatif import config_io, constants, engine, historian, model_status, paths, wizard
 from src.whatif.config_io import WhatIfConfig
 
+from backend.app.jobs.manager import job_manager
 from backend.app.schemas import what_if as schemas
 
 
+_config_cache: Dict[str, Any] = {"path": None, "mtime": None, "cfg": None}
+_config_cache_lock = threading.Lock()
+
+
 def _load_config() -> WhatIfConfig:
+    """Cached by (path, mtime), mirroring _load_historian() below: every
+    What-If endpoint calls this, and on every page mount several of them fire
+    in parallel (config/status, wizard/detected-counts, config/model-mapping,
+    models/status), each independently opening Config_file.xlsx. Since this
+    repo lives under a OneDrive-synced Desktop folder, that many concurrent
+    opens is enough to collide with an in-flight upload's os.replace() and
+    resurface the WinError 5 issue fixed in b98e63f. Safe to cache read-only
+    (same rationale as _load_historian's docstring) — invalidates the instant
+    the file's mtime changes, e.g. right after an upload."""
     path = paths.config_file()
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail=f"Config file not found at {path}")
+    mtime = os.path.getmtime(path)
+    with _config_cache_lock:
+        if _config_cache["path"] == path and _config_cache["mtime"] == mtime:
+            return _config_cache["cfg"]
     try:
-        return config_io.load_all_config(path)
+        cfg = config_io.load_all_config(path)
     except config_io.ConfigSchemaError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    with _config_cache_lock:
+        _config_cache["path"] = path
+        _config_cache["mtime"] = mtime
+        _config_cache["cfg"] = cfg
+    return cfg
 
 
 _historian_cache: Dict[str, Any] = {"path": None, "mtime": None, "df": None}
@@ -81,14 +106,17 @@ def _atomic_write_bytes(path: str, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
+        # 8 attempts / ~10s total (was 5 / ~3s) — the 85MB training workbook
+        # can stay locked by an active OneDrive sync noticeably longer than a
+        # small config file, so give it a realistic window to clear.
         last_error: OSError | None = None
-        for attempt in range(5):
+        for attempt in range(8):
             try:
                 os.replace(tmp_path, path)
                 return
             except OSError as e:
                 last_error = e
-                time.sleep(0.2 * (attempt + 1))
+                time.sleep(0.3 * (attempt + 1))
         raise last_error
     except Exception:
         if os.path.exists(tmp_path):
@@ -263,12 +291,80 @@ async def upload_training_data(file: UploadFile) -> schemas.TrainingDataUploadRe
     return schemas.TrainingDataUploadResponse(saved=True, sheets_found=list(xl.sheet_names), missing_sheets=[])
 
 
+def _model_mapping_filled() -> bool:
+    try:
+        cfg = _load_config()
+    except HTTPException:
+        return False
+    return not cfg.model_details_df.dropna(how="all").empty
+
+
 def get_models_status() -> schemas.ModelStatusResponse:
     status = model_status.check_models_trained(paths.model_dir())
+    raw_sim_present = os.path.isfile(paths.historian_file())
+    training_data_present = os.path.isfile(paths.training_workbook())
+    mapping_filled = _model_mapping_filled()
+
+    # Mirrors Whatif_streamlit_dashboard.py's _train_blockers checklist.
+    blockers: List[str] = []
+    if not os.path.isfile(paths.whatif_train_script()):
+        blockers.append("Training script not found under Scripts/")
+    if not training_data_present:
+        blockers.append("Training dataset not saved yet (Step A)")
+    if not mapping_filled:
+        blockers.append("The Model Mapping sheet is still empty")
+
     return schemas.ModelStatusResponse(
-        all_present=status.all_present, tags_ok=status.tags_ok,
-        tags_missing=status.tags_missing, pkl_count=status.pkl_count,
+        all_present=status.all_present,
+        tags_ok=status.tags_ok,
+        tags_missing=status.tags_missing,
+        pkl_count=status.pkl_count,
+        required_pkl_count=len(model_status.REQUIRED_KALMAN_TAGS) * 3,
+        raw_sim_present=raw_sim_present,
+        training_data_present=training_data_present,
+        model_mapping_filled=mapping_filled,
+        can_train=not blockers,
+        train_blockers=blockers,
+        # Mirrors Streamlit's _results_ready gate: training is only required
+        # when neither the historian nor a full set of model artifacts exist.
+        training_required=not (raw_sim_present or status.all_present),
     )
+
+
+def _run_training_subprocess() -> Dict[str, Any]:
+    """Runs the legacy training script exactly as the Streamlit reference did
+    (subprocess, cwd=Scripts/ so its "..\\Data"/"..\\Results" relative paths
+    resolve to the repo root), then re-checks the artifacts it should have
+    produced. No config write-back: the script reads whatever Model details
+    mapping is currently saved to Data/Config_file.xlsx, same as upstream."""
+    env = os.environ.copy()
+    env["MPLBACKEND"] = "Agg"  # suppress plt.show() pop-ups in a headless subprocess
+    proc = subprocess.run(
+        [sys.executable, paths.whatif_train_script()],
+        cwd=paths.scripts_dir(),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    status = model_status.check_models_trained(paths.model_dir())
+    raw_sim_present = os.path.isfile(paths.historian_file())
+    success = proc.returncode == 0 and (status.pkl_count > 0 or raw_sim_present)
+    return {
+        "success": success,
+        "returncode": proc.returncode,
+        "stdout_tail": (proc.stdout or "")[-8000:],
+        "stderr_tail": (proc.stderr or "")[-8000:],
+        "pkl_count": status.pkl_count,
+        "all_present": status.all_present,
+        "raw_sim_present": raw_sim_present,
+    }
+
+
+def train_models() -> str:
+    status = get_models_status()
+    if not status.can_train:
+        raise HTTPException(status_code=422, detail="; ".join(status.train_blockers))
+    return job_manager.submit(_run_training_subprocess, progress_mode="none")
 
 
 # ---------------------------------------------------------------------------

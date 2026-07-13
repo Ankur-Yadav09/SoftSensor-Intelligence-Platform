@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useRef } from 'react'
 import { uploadTrainingData } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
+import { StepHeading } from '../../components/StepHeading'
 
 export function TrainingDataUpload() {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -9,7 +10,7 @@ export function TrainingDataUpload() {
 
   return (
     <div className="card" style={{ padding: '1.5rem' }}>
-      <h3 style={{ marginTop: 0 }}>📤 Step A — Upload Training Dataset</h3>
+      <StepHeading step={3} title="Step A — Upload Training Dataset" />
       <p className="caption">
         Upload <code>DMC_Screen_tags_data.xlsx</code> — a single workbook containing both the "PI data" and "Furnace
         data" sheets. Used only for (future) model retraining, not for running scenarios.
