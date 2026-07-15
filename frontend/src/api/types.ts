@@ -24,28 +24,16 @@ export interface SavedModelSummary {
   avg_r2: number | null
   avg_rmse: number | null
   avg_mae: number | null
+  train_r2: number | null
+  train_rmse: number | null
+  train_mae: number | null
+  x_cols: string[]
+  y_cols: string[]
 }
 
 export interface OverviewResponse {
   datasets: DatasetSummary[]
   saved_models: SavedModelSummary[]
-}
-
-export interface TargetMetric {
-  name: string
-  r2: number
-  mae: number
-}
-
-export interface ModelPerformance {
-  model_name: string
-  dataset_name: string
-  per_target: TargetMetric[]
-  avg_r2: number
-  grade: string
-  emoji: string
-  x_cols: string[]
-  y_cols: string[]
 }
 
 export interface FeatureStat {
@@ -165,6 +153,9 @@ export interface TrainingResult {
   avg_r2: number
   avg_rmse: number
   avg_mae: number
+  train_r2: number
+  train_rmse: number
+  train_mae: number
   actual_epochs: number | null
   early_stopped: boolean
   epoch_recon_losses: number[]

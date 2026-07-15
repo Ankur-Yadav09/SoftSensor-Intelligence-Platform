@@ -13,6 +13,7 @@ xgboost
 lightgbm
 pyarrow
 openpyxl
+mlflow
 
 # Extra dependencies for runing streamlit 
 fastapi

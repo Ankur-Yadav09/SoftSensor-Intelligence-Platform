@@ -30,6 +30,12 @@ export function FeatureSelectionPage() {
   const [vifThreshold, setVifThreshold] = useState(10.0)
   const [enabledMethods, setEnabledMethods] = useState<Set<string>>(new Set(METHOD_IDS))
   const [perTarget, setPerTarget] = useState(false)
+  // Generic Feature Selection (default): every candidate X is eligible for
+  // every Y. Process-Aware: only X columns appearing BEFORE a given Y in
+  // the dataset's original column order are eligible for that Y — modeled
+  // server-side (backend/app/services/feature_selection_service.py), this
+  // flag just opts in.
+  const [processAware, setProcessAware] = useState(false)
 
   const [jobId, setJobId] = useState<string | null>(null)
   const [xCols, setXCols] = useState<Set<string>>(new Set())
@@ -78,6 +84,7 @@ export function FeatureSelectionPage() {
       corr_threshold: corrThreshold,
       vif_threshold: vifThreshold,
       per_target: perTarget,
+      process_aware: processAware,
     })
   }
 
@@ -91,6 +98,7 @@ export function FeatureSelectionPage() {
       corr_threshold: 0.85,
       vif_threshold: 10.0,
       per_target: perTarget,
+      process_aware: processAware,
     })
   }
 
@@ -252,6 +260,17 @@ export function FeatureSelectionPage() {
                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '1.4rem' }}>
                           <input type="checkbox" checked={perTarget} onChange={(e) => setPerTarget(e.target.checked)} />
                           <span className="caption">Per-target mode (recommended for multi-Y)</span>
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '1.4rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={processAware}
+                            onChange={(e) => setProcessAware(e.target.checked)}
+                          />
+                          <span className="caption">
+                            🏭 Process-Aware Feature Selection (only allow upstream X variables for each target,
+                            based on column order) — default is Generic (all candidates for every target)
+                          </span>
                         </label>
                       </div>
                     ),

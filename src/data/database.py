@@ -90,6 +90,13 @@ def init_db() -> None:
         # fixed-width DataFrame from it) — see list_datasets_with_metadata().
         _ensure_column(conn, "datasets", "plant", "TEXT")
         _ensure_column(conn, "datasets", "unit", "TEXT")
+        # Train-set metrics, added alongside the original test-set avg_r2/
+        # avg_rmse/avg_mae so overfitting is visible without a live,
+        # leakage-prone recompute (see overview_service.py's retired
+        # get_model_performance()). Existing rows get NULL, shown as "—".
+        _ensure_column(conn, "model_registry", "train_r2", "REAL")
+        _ensure_column(conn, "model_registry", "train_rmse", "REAL")
+        _ensure_column(conn, "model_registry", "train_mae", "REAL")
         conn.commit()
 
 
@@ -217,6 +224,9 @@ def save_model_to_registry(
     avg_rmse: float,
     avg_mae: float,
     file_path: str,
+    train_r2: Optional[float] = None,
+    train_rmse: Optional[float] = None,
+    train_mae: Optional[float] = None,
 ) -> int:
     """Insert a model record into the registry. Returns the new row id."""
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -225,14 +235,18 @@ def save_model_to_registry(
             """
             INSERT INTO model_registry
                 (model_name, algorithm, created_at, dataset_name,
-                 x_cols, y_cols, avg_r2, avg_rmse, avg_mae, file_path)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+                 x_cols, y_cols, avg_r2, avg_rmse, avg_mae, file_path,
+                 train_r2, train_rmse, train_mae)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 model_name, algorithm, now, dataset_name,
                 json.dumps(x_cols), json.dumps(y_cols),
                 round(float(avg_r2), 4), round(float(avg_rmse), 4), round(float(avg_mae), 4),
                 file_path,
+                round(float(train_r2), 4) if train_r2 is not None else None,
+                round(float(train_rmse), 4) if train_rmse is not None else None,
+                round(float(train_mae), 4) if train_mae is not None else None,
             ),
         )
         conn.commit()
@@ -244,7 +258,8 @@ def list_models_from_registry() -> List[Dict]:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             "SELECT id, model_name, algorithm, created_at, dataset_name, "
-            "x_cols, y_cols, avg_r2, avg_rmse, avg_mae, file_path "
+            "x_cols, y_cols, avg_r2, avg_rmse, avg_mae, file_path, "
+            "train_r2, train_rmse, train_mae "
             "FROM model_registry ORDER BY created_at DESC"
         ).fetchall()
     result = []
@@ -261,6 +276,9 @@ def list_models_from_registry() -> List[Dict]:
             "avg_rmse":     r[8],
             "avg_mae":      r[9],
             "file_path":    r[10],
+            "train_r2":     r[11],
+            "train_rmse":   r[12],
+            "train_mae":    r[13],
         })
     return result
 

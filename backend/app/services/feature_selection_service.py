@@ -108,6 +108,7 @@ def run_feature_selection_job(
     vif_threshold: float,
     per_target: bool,
     progress_callback=None,
+    process_aware: bool = False,
 ) -> dict:
     """
     Target function submitted to the job manager (progress_mode='message').
@@ -132,11 +133,42 @@ def run_feature_selection_job(
     if missing_x:
         raise ValueError(f"Feature columns not found: {missing_x}")
 
+    # Process-Aware Feature Selection: restrict candidates to columns that
+    # appear BEFORE a given target in the dataset's original (preserved,
+    # upstream->downstream) column order — never touches scoring/ranking,
+    # only which columns are eligible before scoring starts.
+    per_target_x_cols: Optional[Dict[str, List[str]]] = None
+    if process_aware:
+        col_order = {c: i for i, c in enumerate(df.columns)}
+        if per_target:
+            per_target_x_cols = {
+                y: [x for x in resolved_x_cols if col_order[x] < col_order[y]]
+                for y in y_cols
+            }
+            empty_targets = [y for y, xs in per_target_x_cols.items() if not xs]
+            if empty_targets:
+                raise ValueError(
+                    "Process-Aware Feature Selection found no upstream candidate "
+                    f"columns for target(s): {empty_targets}. These targets appear "
+                    "too early in the dataset's column order to have any preceding "
+                    "X variables."
+                )
+        else:
+            earliest_y_pos = min(col_order[y] for y in y_cols)
+            resolved_x_cols = [x for x in resolved_x_cols if col_order[x] < earliest_y_pos]
+            if not resolved_x_cols:
+                raise ValueError(
+                    "Process-Aware Feature Selection found no upstream candidate "
+                    "columns before the earliest-positioned selected target. That "
+                    "target(s) appear too early in the dataset's column order to "
+                    "have any preceding X variables."
+                )
+
     X_df = df[resolved_x_cols]
     y_df = df[y_cols]
 
     if per_target:
-        result = run_per_target_auto_selection(  # unchanged
+        result = run_per_target_auto_selection(
             X_df=X_df,
             y_df=y_df,
             top_k=top_k,
@@ -144,6 +176,7 @@ def run_feature_selection_job(
             corr_threshold=corr_threshold,
             vif_threshold=vif_threshold,
             progress_callback=progress_callback,
+            per_target_x_cols=per_target_x_cols,
         )
         return _serialize_per_target(result)
 

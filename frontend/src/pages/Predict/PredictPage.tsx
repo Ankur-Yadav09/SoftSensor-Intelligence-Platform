@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { listDatasets } from '../../api/datasets'
 import { getOverview } from '../../api/overview'
 import { listProjects } from '../../api/preprocess'
@@ -36,6 +36,28 @@ export function PredictPage() {
   const overviewQuery = useQuery({ queryKey: ['overview'], queryFn: getOverview })
   const projectsQuery = useQuery({ queryKey: ['projects'], queryFn: listProjects })
   const datasetsQuery = useQuery({ queryKey: ['datasets'], queryFn: listDatasets })
+
+  // Default to the most recently trained model — same "latest by saved_at"
+  // rule the Overview page's Model Performance picker already uses — so a
+  // fresh visit to this page isn't a blank dropdown the user has to fill in
+  // (and is less likely to land on a similarly-named older model by mistake).
+  useEffect(() => {
+    if (modelName || !overviewQuery.data) return
+    const models = overviewQuery.data.saved_models
+    if (models.length === 0) return
+    const mostRecent = [...models].sort((a, b) => (a.saved_at < b.saved_at ? 1 : -1))[0]
+    setModelName(mostRecent.name)
+  }, [modelName, overviewQuery.data])
+
+  // Once a model is chosen, default the Project Test Split to the project it
+  // was actually trained on (its id is embedded in the model name) — picking
+  // a different project for the same model is exactly the mismatch that
+  // causes "why don't these R² numbers match" confusion.
+  useEffect(() => {
+    if (!modelName || projectId) return
+    const match = (projectsQuery.data ?? []).find((p) => modelName.includes(p.project_id))
+    if (match) setProjectId(match.project_id)
+  }, [modelName, projectId, projectsQuery.data])
 
   const predictMutation = useMutation({ mutationFn: runPredict })
 

@@ -21,6 +21,7 @@ def submit_feature_selection(body: FeatureSelectionRequest) -> JobIdResponse:
         corr_threshold=body.corr_threshold,
         vif_threshold=body.vif_threshold,
         per_target=body.per_target,
+        process_aware=body.process_aware,
         progress_mode="message",
     )
     return JobIdResponse(job_id=job_id)

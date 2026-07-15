@@ -21,6 +21,16 @@ MODEL_DIR: str = "saved_models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
+# Experiment tracking (MLflow) — logs params/metrics/artifacts for every
+# Soft Sensor training run (backend/app/services/training_service.py).
+# Separate from DB_PATH's model_registry table: that's this app's own model
+# list (Overview/Predict pages); MLflow tracking runs alongside it, not
+# instead of it. Browse runs with `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
+# ---------------------------------------------------------------------------
+MLFLOW_TRACKING_URI: str = "sqlite:///mlflow.db"
+MLFLOW_EXPERIMENT_NAME: str = "soft-sensor-training"
+
+# ---------------------------------------------------------------------------
 # Data pipeline
 # ---------------------------------------------------------------------------
 TEST_SIZE: float = 0.2

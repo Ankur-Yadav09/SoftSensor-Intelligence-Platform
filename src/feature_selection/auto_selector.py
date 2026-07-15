@@ -1701,6 +1701,7 @@ def run_per_target_auto_selection(
     corr_threshold: float = 0.85,
     vif_threshold: float = 10.0,
     progress_callback=None,
+    per_target_x_cols: Optional[Dict[str, List[str]]] = None,
 ) -> PerTargetSelectionResult:
     """
     Run the full feature selection pipeline independently for each Y target,
@@ -1718,6 +1719,12 @@ def run_per_target_auto_selection(
     corr_threshold        : passed to each per-target run
     vif_threshold         : passed to each per-target run
     progress_callback     : optional callable(step: str) for outer progress
+    per_target_x_cols     : optional {y_col: [candidate x_cols]} override —
+                            when given, each target is scored against its own
+                            X_df column subset instead of the shared X_df
+                            (used by Process-Aware Feature Selection to
+                            restrict candidates to upstream-of-target
+                            columns; scoring itself is unchanged either way)
 
     Returns
     -------
@@ -1733,8 +1740,9 @@ def run_per_target_auto_selection(
 
     for i, y_col in enumerate(y_cols):
         _progress(f"[{i + 1}/{n_targets}] Feature selection for target '{y_col}'…")
+        target_X_df = X_df[per_target_x_cols[y_col]] if per_target_x_cols is not None else X_df
         result = run_auto_feature_selection(
-            X_df=X_df,
+            X_df=target_X_df,
             y_df=y_df[[y_col]],
             top_k=top_k,
             enabled_methods=enabled_methods,

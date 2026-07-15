@@ -23,7 +23,10 @@ from __future__ import annotations
 import datetime
 import os
 
-from config.settings import MODEL_DIR
+import mlflow
+import pandas as pd
+
+from config.settings import MLFLOW_EXPERIMENT_NAME, MLFLOW_TRACKING_URI, MODEL_DIR
 from src.data.database import save_model_to_registry
 from src.evaluation.metrics import compute_metrics
 from src.models.wrappers import DAEWrapper
@@ -38,13 +41,31 @@ from backend.app.services import project_service
 ALGORITHMS = ("DAE", "Random Forest", "XGBoost", "LightGBM", "LSTM", "Kalman Filter")
 _SKLEARN_ALGORITHMS = {"Random Forest", "XGBoost", "LightGBM"}
 
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
 
-def _finish(project: project_service.ProjectArtifacts, algorithm: str, wrapper, loss_history: dict) -> dict:
+
+def _finish(
+    project: project_service.ProjectArtifacts,
+    algorithm: str,
+    wrapper,
+    loss_history: dict,
+    hyperparameters: dict,
+) -> dict:
     preds = project.scaler_y.inverse_transform(wrapper.predict_scaled(project.X_test))  # unchanged
     metrics_df = compute_metrics(project.y_test_raw, preds, project.y_cols)  # unchanged
     avg_r2 = float(metrics_df["R2 Score"].mean())
     avg_rmse = float(metrics_df["RMSE"].mean())
     avg_mae = float(metrics_df["MAE"].mean())
+
+    # Train-set counterpart, computed the same way, so overfitting (a big
+    # train/test gap) is visible instead of only ever showing one number.
+    train_preds = project.scaler_y.inverse_transform(wrapper.predict_scaled(project.X_train))
+    train_true = pd.DataFrame(project.scaler_y.inverse_transform(project.y_train), columns=project.y_cols)
+    train_metrics_df = compute_metrics(train_true, train_preds, project.y_cols)
+    train_r2 = float(train_metrics_df["R2 Score"].mean())
+    train_rmse = float(train_metrics_df["RMSE"].mean())
+    train_mae = float(train_metrics_df["MAE"].mean())
 
     model_name = (
         f"{algorithm.replace(' ', '_')}_{project.project_id}_"
@@ -64,9 +85,38 @@ def _finish(project: project_service.ProjectArtifacts, algorithm: str, wrapper, 
             avg_rmse=avg_rmse,
             avg_mae=avg_mae,
             file_path=os.path.join(MODEL_DIR, model_name),
+            train_r2=train_r2,
+            train_rmse=train_rmse,
+            train_mae=train_mae,
         )
     except Exception:
         pass  # registry write failure must not block training success (matches train.py today)
+
+    # Experiment tracking is additive: never let it block a successful
+    # training run (same defensive pattern as the registry write above).
+    try:
+        with mlflow.start_run(run_name=model_name):
+            mlflow.set_tags({"algorithm": algorithm, "dataset_name": project.dataset_name})
+            mlflow.log_params(hyperparameters)
+            mlflow.log_metrics({
+                "avg_r2": avg_r2, "avg_rmse": avg_rmse, "avg_mae": avg_mae,
+                "train_r2": train_r2, "train_rmse": train_rmse, "train_mae": train_mae,
+            })
+            for i, col in enumerate(project.y_cols):
+                mlflow.log_metric(f"r2_{col}", float(metrics_df["R2 Score"].iloc[i]))
+                mlflow.log_metric(f"rmse_{col}", float(metrics_df["RMSE"].iloc[i]))
+                mlflow.log_metric(f"mae_{col}", float(metrics_df["MAE"].iloc[i]))
+                mlflow.log_metric(f"train_r2_{col}", float(train_metrics_df["R2 Score"].iloc[i]))
+                mlflow.log_metric(f"train_rmse_{col}", float(train_metrics_df["RMSE"].iloc[i]))
+                mlflow.log_metric(f"train_mae_{col}", float(train_metrics_df["MAE"].iloc[i]))
+            # Per-epoch curves — present only for DAE/LSTM, empty (no-op) for
+            # tree ensembles/Kalman Filter, matching loss_history's shape.
+            for key in ("epoch_recon_losses", "epoch_pred_losses", "val_recon_losses", "val_pred_losses"):
+                for step, value in enumerate(loss_history.get(key, [])):
+                    mlflow.log_metric(key, value, step=step)
+            mlflow.log_artifacts(os.path.join(MODEL_DIR, model_name))
+    except Exception:
+        pass
 
     return {
         "model_name": model_name,
@@ -74,6 +124,9 @@ def _finish(project: project_service.ProjectArtifacts, algorithm: str, wrapper, 
         "avg_r2": avg_r2,
         "avg_rmse": avg_rmse,
         "avg_mae": avg_mae,
+        "train_r2": train_r2,
+        "train_rmse": train_rmse,
+        "train_mae": train_mae,
         "actual_epochs": loss_history.get("actual_epochs"),
         "early_stopped": loss_history.get("early_stopped", False),
         # Present (non-empty) only for DAE/LSTM — tree ensembles and Kalman
@@ -112,7 +165,7 @@ def prepare_training_job(project_id: str, algorithm: str, hyperparameters: dict)
                 **hyperparameters,
             )
             wrapper = DAEWrapper(dae)
-            return _finish(project, algorithm, wrapper, loss_history)
+            return _finish(project, algorithm, wrapper, loss_history, hyperparameters)
 
         return target, "epoch"
 
@@ -130,7 +183,7 @@ def prepare_training_job(project_id: str, algorithm: str, hyperparameters: dict)
                 status_callback=status_callback,
                 **hyperparameters,
             )
-            return _finish(project, algorithm, wrapper, loss_history)
+            return _finish(project, algorithm, wrapper, loss_history, hyperparameters)
 
         return target, "epoch"
 
@@ -147,7 +200,7 @@ def prepare_training_job(project_id: str, algorithm: str, hyperparameters: dict)
                 model_type=algorithm,
                 **hyperparameters,
             )
-            return _finish(project, algorithm, wrapper, loss_history)
+            return _finish(project, algorithm, wrapper, loss_history, hyperparameters)
 
         return target, "none"
 
@@ -163,6 +216,6 @@ def prepare_training_job(project_id: str, algorithm: str, hyperparameters: dict)
             scaler_y=project.scaler_y,
             **hyperparameters,
         )
-        return _finish(project, algorithm, wrapper, loss_history)
+        return _finish(project, algorithm, wrapper, loss_history, hyperparameters)
 
     return target, "none"

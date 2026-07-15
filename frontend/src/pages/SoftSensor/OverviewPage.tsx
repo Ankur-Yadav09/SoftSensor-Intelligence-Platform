@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getModelPerformance, getOverview } from '../../api/overview'
+import { getOverview } from '../../api/overview'
 import { Callout } from '../../components/Callout'
 import { DataTable } from '../../components/DataTable'
-import { KpiCard } from '../../components/KpiCard'
 import { StatusCard } from '../../components/StatusCard'
 import { WorkflowGuide } from '../../components/WorkflowGuide'
 import type { SavedModelSummary } from '../../api/types'
@@ -25,16 +24,11 @@ export function SoftSensorOverviewPage() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const activeModel = selectedModel ?? mostRecentModel
 
-  const performanceQuery = useQuery({
-    queryKey: ['model-performance', activeModel],
-    queryFn: () => getModelPerformance(activeModel as string),
-    enabled: !!activeModel,
-  })
-
   if (overviewQuery.isLoading) return <p className="caption">Loading overview…</p>
   if (overviewQuery.isError) return <p className="caption">Failed to load overview.</p>
 
   const { datasets, saved_models: savedModels } = overviewQuery.data!
+  const activeSummary = savedModels.find((m) => m.name === activeModel)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
@@ -57,7 +51,7 @@ export function SoftSensorOverviewPage() {
           sublabel={savedModels.length === 0 ? 'Train a model first' : undefined}
         />
         <StatusCard
-          label="Best Avg R² (all models)"
+          label="Best Test R² (all models)"
           tone={savedModels.some((m) => m.avg_r2 != null) ? 'success' : 'warning'}
           value={
             savedModels.some((m) => m.avg_r2 != null)
@@ -87,31 +81,42 @@ export function SoftSensorOverviewPage() {
           <Callout variant="info">Upload data, preprocess, and train a model to see performance metrics here.</Callout>
         )}
 
-        {performanceQuery.isLoading && activeModel && (
-          <p className="caption">Computing performance for {activeModel}…</p>
-        )}
-        {performanceQuery.isError && (
-          <p className="caption">Could not compute performance for {activeModel}.</p>
-        )}
-
-        {performanceQuery.data && (
+        {activeSummary && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              {performanceQuery.data.per_target.map((t) => (
-                <KpiCard key={t.name} name={t.name} r2={t.r2} mae={t.mae} />
-              ))}
+              <StatusCard
+                label="Train R² / RMSE / MAE"
+                tone={activeSummary.train_r2 != null ? 'info' : 'warning'}
+                value={activeSummary.train_r2 != null ? activeSummary.train_r2.toFixed(4) : '—'}
+                sublabel={
+                  activeSummary.train_rmse != null && activeSummary.train_mae != null
+                    ? `RMSE ${activeSummary.train_rmse.toFixed(4)} · MAE ${activeSummary.train_mae.toFixed(4)}`
+                    : 'Not available for this model'
+                }
+              />
+              <StatusCard
+                label="Test R² / RMSE / MAE"
+                tone={activeSummary.avg_r2 != null ? 'success' : 'warning'}
+                value={activeSummary.avg_r2 != null ? activeSummary.avg_r2.toFixed(4) : '—'}
+                sublabel={
+                  activeSummary.avg_rmse != null && activeSummary.avg_mae != null
+                    ? `RMSE ${activeSummary.avg_rmse.toFixed(4)} · MAE ${activeSummary.avg_mae.toFixed(4)}`
+                    : 'Not available for this model'
+                }
+              />
             </div>
-            <p>
-              <strong>Overall Average R²:</strong> <code>{performanceQuery.data.avg_r2.toFixed(4)}</code> —{' '}
-              <strong>
-                {performanceQuery.data.grade} {performanceQuery.data.emoji}
-              </strong>
-            </p>
+            {activeSummary.train_r2 != null && activeSummary.avg_r2 != null && (
+              <p className="caption">
+                Gap (Train − Test) = <code>{(activeSummary.train_r2 - activeSummary.avg_r2).toFixed(4)}</code> — a
+                large gap means the model fits its training data much better than unseen data (overfitting). For a
+                detailed per-target breakdown, run this model on the Predict page's Project Test Split.
+              </p>
+            )}
             <div style={{ display: 'flex', gap: '3rem', flexWrap: 'wrap' }}>
               <div>
                 <strong>Input Features (X)</strong>
                 <ul>
-                  {performanceQuery.data.x_cols.map((c) => (
+                  {activeSummary.x_cols.map((c) => (
                     <li key={c}>
                       <code>{c}</code>
                     </li>
@@ -121,7 +126,7 @@ export function SoftSensorOverviewPage() {
               <div>
                 <strong>Target Features (Y)</strong>
                 <ul>
-                  {performanceQuery.data.y_cols.map((c) => (
+                  {activeSummary.y_cols.map((c) => (
                     <li key={c}>
                       <code>{c}</code>
                     </li>
@@ -159,7 +164,8 @@ export function SoftSensorOverviewPage() {
               { header: 'Name', render: (m) => m.name },
               { header: 'Algorithm', render: (m) => m.algorithm ?? '—' },
               { header: 'Saved At', render: (m) => m.saved_at },
-              { header: 'Avg R²', render: (m) => (m.avg_r2 != null ? m.avg_r2.toFixed(4) : '—') },
+              { header: 'Train R²', render: (m) => (m.train_r2 != null ? m.train_r2.toFixed(4) : '—') },
+              { header: 'Test R²', render: (m) => (m.avg_r2 != null ? m.avg_r2.toFixed(4) : '—') },
             ]}
           />
         </div>

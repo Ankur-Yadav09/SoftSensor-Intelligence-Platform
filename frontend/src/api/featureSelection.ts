@@ -8,6 +8,7 @@ export interface FeatureSelectionRequest {
   corr_threshold: number
   vif_threshold: number
   per_target: boolean
+  process_aware: boolean
 }
 
 export async function submitFeatureSelection(body: FeatureSelectionRequest): Promise<string> {

@@ -14,6 +14,13 @@ class FeatureSelectionRequest(BaseModel):
     corr_threshold: float = 0.85
     vif_threshold: float = 10.0
     per_target: bool = False
+    # Generic (default, False): candidate X columns = all numeric columns
+    # except the selected Y's, shared across every target.
+    # Process-aware (True): for each Y, only columns appearing BEFORE it in
+    # the dataset's original column order are eligible candidates — models
+    # an upstream-to-downstream process layout where a downstream sensor
+    # can't legitimately predict an upstream target.
+    process_aware: bool = False
 
 
 class JobIdResponse(BaseModel):

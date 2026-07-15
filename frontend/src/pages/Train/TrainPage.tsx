@@ -187,8 +187,12 @@ export function TrainPage() {
             <strong>{result.algorithm}</strong> trained and saved as <code>{result.model_name}</code>
           </Callout>
           <p className="caption" style={{ marginTop: '0.75rem' }}>
-            Avg R² = <code>{result.avg_r2.toFixed(4)}</code> · Avg RMSE ={' '}
-            <code>{result.avg_rmse.toFixed(4)}</code> · Avg MAE = <code>{result.avg_mae.toFixed(4)}</code>
+            <strong>Train</strong> R² = <code>{result.train_r2.toFixed(4)}</code> · RMSE ={' '}
+            <code>{result.train_rmse.toFixed(4)}</code> · MAE = <code>{result.train_mae.toFixed(4)}</code>
+          </p>
+          <p className="caption" style={{ marginTop: '0.25rem' }}>
+            <strong>Test</strong> R² = <code>{result.avg_r2.toFixed(4)}</code> · RMSE ={' '}
+            <code>{result.avg_rmse.toFixed(4)}</code> · MAE = <code>{result.avg_mae.toFixed(4)}</code>
             {result.actual_epochs != null && <> · Epochs: {result.actual_epochs}</>}
             {result.early_stopped && <> · Early stopped</>}
           </p>

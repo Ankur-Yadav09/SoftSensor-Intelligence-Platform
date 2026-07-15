@@ -9,6 +9,8 @@ soft_sensor/
 dashboard.db
 saved_models/*
 !saved_models/.gitkeep
+mlflow.db
+mlruns/
 
 # Frontend
 frontend/node_modules/
