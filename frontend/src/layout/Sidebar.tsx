@@ -32,6 +32,7 @@ const NAV_ENTRIES: NavEntry[] = [
       { to: '/feature-selection', label: 'Feature Discovery', icon: '🔍' },
       { to: '/train', label: 'Build Model', icon: '🧠' },
       { to: '/predict', label: 'Prediction', icon: '🔮' },
+      { to: '/experiment-history', label: 'Experiment History', icon: '📋' },
     ],
   },
   {

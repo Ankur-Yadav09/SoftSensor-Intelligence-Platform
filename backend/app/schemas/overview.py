@@ -13,6 +13,7 @@ class SavedModelSummary(BaseModel):
     input_dim: int
     output_dim: int
     algorithm: Optional[str] = None
+    dataset_name: Optional[str] = None
     avg_r2: Optional[float] = None
     avg_rmse: Optional[float] = None
     avg_mae: Optional[float] = None

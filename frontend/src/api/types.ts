@@ -21,6 +21,7 @@ export interface SavedModelSummary {
   input_dim: number
   output_dim: number
   algorithm: string | null
+  dataset_name: string | null
   avg_r2: number | null
   avg_rmse: number | null
   avg_mae: number | null

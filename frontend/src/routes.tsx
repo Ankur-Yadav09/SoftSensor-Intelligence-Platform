@@ -2,6 +2,7 @@ import { createBrowserRouter } from 'react-router-dom'
 import { Layout } from './layout/Layout'
 import { AppOverviewPage } from './pages/Overview/AppOverviewPage'
 import { FeatureSelectionPage } from './pages/FeatureSelection/FeatureSelectionPage'
+import { ExperimentHistoryPage } from './pages/SoftSensor/ExperimentHistoryPage'
 import { SoftSensorOverviewPage } from './pages/SoftSensor/OverviewPage'
 import { PredictPage } from './pages/Predict/PredictPage'
 import { PreprocessPage } from './pages/Preprocess/PreprocessPage'
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
       { path: '/feature-selection', element: <FeatureSelectionPage /> },
       { path: '/train', element: <TrainPage /> },
       { path: '/predict', element: <PredictPage /> },
+      { path: '/experiment-history', element: <ExperimentHistoryPage /> },
       { path: '/what-if/overview', element: <WhatIfOverviewPage /> },
       { path: '/what-if/case-setup', element: <CaseSetupPage /> },
       { path: '/what-if/dashboard', element: <DashboardPage /> },

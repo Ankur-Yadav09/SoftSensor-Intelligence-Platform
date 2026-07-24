@@ -40,6 +40,7 @@ def get_overview() -> OverviewResponse:
                 input_dim=m["input_dim"],
                 output_dim=m["output_dim"],
                 algorithm=(reg["algorithm"] if reg else m.get("model_type")),
+                dataset_name=reg["dataset_name"] if reg else None,
                 avg_r2=reg["avg_r2"] if reg else None,
                 avg_rmse=reg["avg_rmse"] if reg else None,
                 avg_mae=reg["avg_mae"] if reg else None,
