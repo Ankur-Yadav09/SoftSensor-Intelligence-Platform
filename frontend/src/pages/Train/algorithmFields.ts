@@ -53,8 +53,8 @@ export const ALGO_FIELDS: Record<string, FieldSpec[]> = {
   'Kalman Filter': [
     { key: 'process_noise', label: 'Process Noise (Q)', type: 'number', min: 0.000001, max: 1, step: 0.0001 },
     { key: 'measurement_noise', label: 'Measurement Noise (R)', type: 'number', min: 0.0001, max: 10, step: 0.001 },
-    { key: 'initial_covariance', label: 'Initial Covariance (P0)', type: 'number', min: 0.1, max: 10, step: 0.1 },
-    { key: 'n_epochs', label: 'Training Passes (Epochs)', type: 'number', min: 1, max: 50, step: 1 },
+    { key: 'num_block_rows', label: 'Num Block Rows (NFourSID)', type: 'number', min: 2, max: 50, step: 1 },
+    { key: 'rank', label: 'State-Space Rank', type: 'number', min: 1, max: 10, step: 1 },
   ],
 }
 
@@ -111,8 +111,8 @@ export const ALGO_DEFAULTS: Record<string, Record<string, unknown>> = {
   'Kalman Filter': {
     process_noise: 0.0001,
     measurement_noise: 0.01,
-    initial_covariance: 1.0,
-    n_epochs: 10,
+    num_block_rows: 10,
+    rank: 2,
     random_state: 42,
   },
 }

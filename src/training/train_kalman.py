@@ -3,23 +3,24 @@ src/training/train_kalman.py
 ==============================
 Training function for the Kalman Filter soft sensor model.
 
-The Kalman Filter is applied as a recursive linear estimator — a
-Kalman-Filter-based Recursive Least Squares (KF-RLS) regressor. Each target
-column gets its own filter whose state is the vector of linear regression
-coefficients (plus bias). Every training sample is treated as one step of a
-linear-Gaussian state-space system:
+Uses genuine state-space system identification: `nfoursid.NFourSID` performs
+subspace identification (via Hankel matrices over consecutive time steps) to
+recover a state-space model (A, B, C, D), then predictions are made by
+stepping an `nfoursid.kalman.Kalman` filter row-by-row over the input
+sequence. This mirrors the approach already used by the What-If module
+(`Scripts/Model_development_and_static_whatif_testing.py` /
+`src/whatif/engine.py`), applied here to the Train page's generic
+project/algorithm pipeline.
 
-    theta_t = theta_(t-1) + w_t,      w_t ~ N(0, Q)   (state transition)
-    y_t     = H_t . theta_t + v_t,    v_t ~ N(0, R)   (measurement)
+Because subspace identification depends on temporally consecutive rows
+(Hankel matrices span consecutive time steps), the calling project MUST have
+been built with a sequential (non-shuffled) train/test split — enforced in
+backend/app/services/training_service.py before this function is ever
+called, not here.
 
-where H_t is the feature row [x_t, 1] (bias appended). Allowing a small
-process noise Q (instead of freezing the state as in classic RLS) lets the
-filter keep adapting to slow drift in the underlying process — a common
-requirement for industrial soft sensors.
-
-Multi-Y is supported the same way MultiOutputRegressor handles it for the
-tree ensembles: one independent filter per output column, all driven by the
-same feature rows.
+Multi-Y is supported by fitting one independent NFourSID/Kalman pair per
+output column (mirroring how the reference script itself repeats the same
+block once per predicted parameter), all driven by the same input rows.
 
 Public API
 ----------
@@ -33,6 +34,9 @@ from __future__ import annotations
 from typing import Dict, List
 
 import numpy as np
+import pandas as pd
+from nfoursid.kalman import Kalman
+from nfoursid.nfoursid import NFourSID
 from sklearn.metrics import mean_absolute_error, r2_score
 
 from src.models.wrappers import SklearnWrapper
@@ -40,11 +44,13 @@ from src.models.wrappers import SklearnWrapper
 
 class _KalmanFilterRegressor:
     """
-    Recursive linear regressor fit with a per-output Kalman Filter.
+    State-space regressor identified via NFourSID subspace identification,
+    predicted via a stepped Kalman filter.
 
-    Exposes the same ``fit(X, y)`` / ``predict(X)`` surface as an
-    sklearn estimator so it can be wrapped with the existing
-    ``SklearnWrapper`` used by the tree-ensemble models.
+    Exposes the same ``fit(X, y)`` / ``predict(X)`` surface as an sklearn
+    estimator so it can be wrapped with the existing ``SklearnWrapper`` used
+    by the tree-ensemble models — nothing downstream (save/load, MLflow,
+    Predict page) needs to know this isn't a plain sklearn regressor.
     """
 
     def __init__(
@@ -52,14 +58,16 @@ class _KalmanFilterRegressor:
         process_noise: float = 1e-4,
         measurement_noise: float = 1e-2,
         initial_covariance: float = 1.0,
-        n_epochs: int = 10,
+        num_block_rows: int = 10,
+        rank: int = 2,
         random_state: int = 42,
     ) -> None:
         self.process_noise = process_noise
         self.measurement_noise = measurement_noise
         self.initial_covariance = initial_covariance
-        self.n_epochs = n_epochs
-        self.random_state = random_state
+        self.num_block_rows = num_block_rows
+        self.rank = rank
+        self.random_state = random_state  # accepted, unused: NFourSID is a deterministic linear-algebra fit
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "_KalmanFilterRegressor":
         X = np.atleast_2d(np.asarray(X, dtype=float))
@@ -67,49 +75,69 @@ class _KalmanFilterRegressor:
         if y.ndim == 1:
             y = y.reshape(-1, 1)
 
-        n_samples, n_features = X.shape
-        n_outputs = y.shape[1]
-        n_states = n_features + 1  # + bias term
+        x_names = [f"x{i}" for i in range(X.shape[1])]
 
-        # Augment features with a constant column for the bias state.
-        X_aug = np.hstack([X, np.ones((n_samples, 1))])
+        # One NFourSID -> state-space -> (implicit) Kalman pair per target
+        # column, exactly mirroring how the reference script repeats this
+        # block once per predicted parameter.
+        state_spaces = []
+        for j in range(y.shape[1]):
+            y_name = f"y{j}"
+            train_df = pd.DataFrame(X, columns=x_names)
+            train_df[y_name] = y[:, j]
 
-        Q = np.eye(n_states) * self.process_noise
-        R = self.measurement_noise
+            nfoursid = NFourSID(
+                train_df,
+                output_columns=[y_name],
+                input_columns=x_names,
+                num_block_rows=self.num_block_rows,
+            )
+            nfoursid.subspace_identification()
+            state_space, _ = nfoursid.system_identification(rank=self.rank)
+            state_spaces.append(state_space)
 
-        theta = np.zeros((n_states, n_outputs))
-        P = [np.eye(n_states) * self.initial_covariance for _ in range(n_outputs)]
-
-        rng = np.random.RandomState(self.random_state)
-        order = np.arange(n_samples)
-
-        # Multiple shuffled passes let the filter converge on small
-        # datasets, since a single online pass rarely sees enough
-        # samples to settle the state estimate.
-        for _ in range(self.n_epochs):
-            rng.shuffle(order)
-            for i in order:
-                h = X_aug[i]  # feature row, shape (n_states,)
-                for j in range(n_outputs):
-                    # ---- Predict: random-walk state, inflate covariance ----
-                    P_pred = P[j] + Q
-
-                    # ---- Update: fuse the new (x, y) observation ----
-                    innovation_cov = float(h @ P_pred @ h.T) + R
-                    kalman_gain = (P_pred @ h) / innovation_cov
-                    residual = y[i, j] - float(h @ theta[:, j])
-                    theta[:, j] = theta[:, j] + kalman_gain * residual
-                    P[j] = P_pred - np.outer(kalman_gain, h) @ P_pred
-
-        self.theta_ = theta
-        self.n_features_ = n_features
-        self.n_outputs_ = n_outputs
+        self.state_spaces_ = state_spaces
+        self.x_names_ = x_names
+        self.n_outputs_ = y.shape[1]
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         X = np.atleast_2d(np.asarray(X, dtype=float))
-        X_aug = np.hstack([X, np.ones((X.shape[0], 1))])
-        return X_aug @ self.theta_  # shape (n_samples, n_outputs)
+        preds = np.zeros((X.shape[0], self.n_outputs_))
+
+        for j, state_space in enumerate(self.state_spaces_):
+            y_dim, x_dim = state_space.y_dim, state_space.x_dim
+
+            # noise_covariance is a (y_dim+x_dim, y_dim+x_dim) block matrix:
+            # top-left y_dim x y_dim block = measurement noise, bottom-right
+            # x_dim x x_dim block = process noise (see nfoursid.kalman.Kalman).
+            noise_cov = np.eye(y_dim + x_dim)
+            noise_cov[:y_dim, :y_dim] *= self.measurement_noise
+            noise_cov[y_dim:, y_dim:] *= self.process_noise
+
+            kalman = Kalman(state_space=state_space, noise_covariance=noise_cov)
+            # Note: nfoursid.kalman.Kalman has no P0 hook — .step() always
+            # falls back to a hardcoded np.eye(x_dim) for the first step's
+            # predicted covariance (matching the reference code, which
+            # doesn't seed P0 either). An earlier attempt to pre-seed
+            # kalman.p_predicteds here corrupted to_dataframe(), which zips
+            # several internally-tracked lists that must all stay the same
+            # length as the number of .step() calls — self.initial_covariance
+            # is accepted for API/schema compatibility but intentionally
+            # unused for this algorithm.
+
+            for i in range(X.shape[0]):
+                kalman.step(y=None, u=X[i].reshape(-1, 1))
+
+            results = kalman.to_dataframe()
+            # nfoursid always labels state-space outputs with its own
+            # canonical symbol (e.g. "$y_0$") regardless of the column name
+            # passed into NFourSID(output_columns=...) — read it back from
+            # the state space itself rather than guessing the format.
+            y_label = state_space.y_column_names[0]
+            preds[:, j] = results[(y_label, "filtered", "output")].values
+
+        return preds
 
 
 def train_kalman_model(
@@ -123,19 +151,21 @@ def train_kalman_model(
     **hparams,
 ) -> tuple:
     """
-    Train a Kalman-Filter-based recursive linear model for multi-output
-    soft sensor prediction.
+    Train a state-space (NFourSID + Kalman) model for multi-output soft
+    sensor prediction.
 
     Parameters
     ----------
-    X_train / X_test   : scaled numpy feature arrays
+    X_train / X_test   : scaled numpy feature arrays (rows must be in
+                          temporal order — see module docstring)
     y_train_scaled      : scaled numpy target array (N, output_dim)
     y_test_scaled        : scaled test targets
     y_test_raw           : unscaled test targets DataFrame
     y_cols               : ordered target column names
     scaler_y             : fitted StandardScaler
     **hparams            : process_noise, measurement_noise,
-                            initial_covariance, n_epochs, random_state
+                            initial_covariance, num_block_rows, rank,
+                            random_state
 
     Returns
     -------
@@ -173,7 +203,7 @@ def train_kalman_model(
         "epoch_pred_losses":  [],
         "val_recon_losses":   [],
         "val_pred_losses":    [],
-        "actual_epochs":      hparams.get("n_epochs", 10),
+        "actual_epochs":      None,  # no epoch concept for a one-shot state-space fit
         "early_stopped":      False,
         "final_r2":           avg_r2,
         "final_mae":          avg_mae,

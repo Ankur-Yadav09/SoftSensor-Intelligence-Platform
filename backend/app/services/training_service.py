@@ -204,7 +204,18 @@ def prepare_training_job(project_id: str, algorithm: str, hyperparameters: dict)
 
         return target, "none"
 
-    # Kalman Filter
+    # Kalman Filter — requires temporally-ordered rows (it identifies a
+    # state-space model from consecutive time steps via Hankel matrices);
+    # checked here, before the job is even submitted, so a shuffled-split
+    # project 422s immediately instead of failing inside the background job.
+    if project.config.get("split_method") != "sequential":
+        raise ValueError(
+            "Kalman Filter requires temporally-ordered data (it identifies a "
+            "state-space model from consecutive time steps). This project was "
+            "built with a shuffled/random split. Rebuild it on the Feature "
+            'Selection page\'s Final Apply step using "Sequential Split", then retrain.'
+        )
+
     def target():
         wrapper, loss_history = train_kalman_model(  # unchanged
             X_train=project.X_train,
