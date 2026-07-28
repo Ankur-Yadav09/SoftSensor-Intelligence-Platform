@@ -18,28 +18,22 @@ function isGroup(entry: NavEntry): entry is NavGroup {
   return 'items' in entry
 }
 
-// The What-If Analysis Module below re-adds tag-mapping/scenario pages that
-// were previously removed from this app (see git history) — existing Soft
-// Sensor routes/paths are left exactly as they were, per the migration plan.
+// This branch surfaces only the What-If Studio group — the Soft Sensor
+// Module's pages are still reachable via the routes linked below (their
+// own sidebar group is hidden here, not removed from routes.tsx).
 const NAV_ENTRIES: NavEntry[] = [
   { to: '/', label: 'Overview', icon: '🏠' },
   {
-    label: 'Soft Sensor Module',
+    label: 'What-If Studio',
     items: [
-      { to: '/soft-sensor-overview', label: 'Overview', icon: '📈' },
+      { to: '/what-if/overview', label: 'Overview', icon: '📖' },
+      { to: '/what-if/case-setup', label: 'What-If Case Setup', icon: '🧙' },
       { to: '/upload', label: 'Connect Data', icon: '📤' },
       { to: '/preprocess', label: 'Data Health', icon: '⚙️' },
       { to: '/feature-selection', label: 'Feature Discovery', icon: '🔍' },
       { to: '/train', label: 'Build Model', icon: '🧠' },
       { to: '/predict', label: 'Prediction', icon: '🔮' },
       { to: '/experiment-history', label: 'Experiment History', icon: '📋' },
-    ],
-  },
-  {
-    label: 'What-If Studio',
-    items: [
-      { to: '/what-if/overview', label: 'Overview', icon: '📖' },
-      { to: '/what-if/case-setup', label: 'What-If Case Setup', icon: '🧙' },
       { to: '/what-if/dashboard', label: 'What-If Dashboard', icon: '📊' },
     ],
   },
