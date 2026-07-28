@@ -1,46 +1,65 @@
 """
 src/whatif/engine.py
 ======================
-Ported, Streamlit-free version of Scripts/whatif_runner.py's whatif_analysis()
-pipeline. Scripts/ itself is never imported or edited — this is an independent
-reimplementation that preserves the exact math, step order, and mid-pipeline
-constraint short-circuit of the original.
+Ported, Streamlit-free version of Scripts/whatif_runner_updated.py's generic,
+config-driven whatif_analysis() pipeline: the prediction order comes from a
+dependency graph built off the "Model details" sheet (topologically sorted),
+constraint rules ("bump linked parameter to max", "abort if exceeds") come
+entirely from the "Constraints" sheet's Linked Parameter/Action columns, and
+any physics that can't be reduced to a Kalman model lives in a plant plug-in
+(src/whatif/plants/) rather than hardcoded here.
 
-Differences from the original, all deliberate (see the migration plan):
-  - No module-level import-time side effect (the original called
+This replaces this repo's previous engine.py, which mirrored an older,
+single-plant, hardcoded version of the reference script: a fixed sequence of
+~20 named prediction steps with 3 copy-pasted "bump to max" blocks and one
+hardcoded abort check, all specific to YANPET_OLF1. That version also had a
+latent bug the rewrite fixes: it extracted a predicted parameter's Kalman
+input columns *positionally* (`iloc[:, 1:]`), which breaks the moment "Model
+details" gains Section/model-type columns between "Predicted parameter" and
+"Input parameter_1" (exactly what the new config schema does) — a literal
+"CGC"/"Data model" string would land in the Kalman feature vector. This
+version uses src/whatif/config_io.input_param_cols() (name-based) instead.
+
+Differences from Scripts/whatif_runner_updated.py, all deliberate (matching
+this repo's existing conventions, not the reference script's):
+  - No module-level import-time side effect (the reference calls
     load_process_data() at import time); the historian is loaded once by the
     caller (backend/app/services/what_if_service.py) and passed in.
-  - Config (Model details, Constraints) is loaded once by the caller via
-    src/whatif/config_io.py and passed in, instead of being re-read from
-    Config_file.xlsx on every call.
-  - Paths are parameterized (model_dir) instead of hardcoded "..\\Results\\Model".
+  - Config (Model details, Constraints, Section Order, ...) is loaded once by
+    the caller via src/whatif/config_io.py and passed in as a WhatIfConfig,
+    instead of being re-read from Config_file.xlsx on every call.
+  - The plant plug-in is passed in (or auto-loaded once via
+    src/whatif/plants.load_plant_formulas() if omitted) instead of being
+    re-imported from disk on every call.
+  - No multi-plant PLANT_NAME/path-resolution machinery — single plant,
+    paths are parameterized (model_dir) instead.
+  - section_order is derived from config.section_order_list() rather than
+    being a separate parameter — the config workbook is the single source of
+    truth for it.
   - Returns a plain WhatIfResult dataclass instead of a pandas Styler —
     coloring is a frontend concern.
   - The "Actual_vs_estimated what if.xlsx" disk write is strictly opt-in via
     write_actual_vs_estimated_xlsx (default False), and when enabled writes to
-    a per-request filename rather than the original's fixed name, to avoid
+    a per-request filename rather than the reference's fixed name, to avoid
     concurrent-request overwrites.
-
-The pipeline is intentionally NOT decomposed into per-tag functions callable
-independently over HTTP: later steps consume earlier results (e.g.
-Delta_CGC_Suction_Pressure computed mid-pipeline feeds the later COT formula),
-and there is a hard mid-pipeline short-circuit on CGC_5TH_STG_DISCH_PRES. One
-call to whatif_analysis() is one full, order-dependent pipeline run.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pickle
 from dataclasses import dataclass
+from types import ModuleType
 
 import joblib
 import numpy as np
 import pandas as pd
-from CoolProp.CoolProp import PropsSI
-from scipy.optimize import minimize_scalar
 
-from src.whatif.config_io import CONSTRAINTS_MAX_COL, WhatIfConfig
+from src.whatif import config_io, plants
+from src.whatif.config_io import WhatIfConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,21 +71,128 @@ class WhatIfResult:
 
 
 # ---------------------------------------------------------------------------
-# Per-tag Kalman prediction / user-override helpers
+# Generic building blocks (fully data-driven, no plant-specific names)
 # ---------------------------------------------------------------------------
 
-def _predict_and_update_with_kalman(
+def build_dependency_graph(model_details_df: pd.DataFrame) -> dict[str, list[str]]:
+    """{Predicted parameter: [Input parameter, ...]} straight off the Model
+    details sheet — works for any set of predicted parameters."""
+    graph: dict[str, list[str]] = {}
+    input_cols = config_io.input_param_cols(model_details_df)
+    for _, r in model_details_df.iterrows():
+        pred = r.get("Predicted parameter")
+        if pd.isna(pred):
+            continue
+        pred = str(pred).strip()
+        inputs = [str(r[c]).strip() for c in input_cols if pd.notna(r[c])]
+        graph[pred] = inputs
+    return graph
+
+
+def topological_execution_order(graph: dict[str, list[str]]) -> list[str]:
+    """DFS-based topological sort: dependencies are predicted before the
+    parameters that use them. Robust to cycles (a cyclic edge is simply
+    skipped rather than raising)."""
+    order: list[str] = []
+    visited: set[str] = set()
+    in_progress: set[str] = set()
+
+    def visit(node: str) -> None:
+        if node in visited or node not in graph:
+            return
+        if node in in_progress:
+            return  # cycle guard
+        in_progress.add(node)
+        for dep in graph[node]:
+            visit(dep)
+        in_progress.discard(node)
+        visited.add(node)
+        order.append(node)
+
+    for node in graph:
+        visit(node)
+    return order
+
+
+def filter_model_details_by_section(
+    model_details_df: pd.DataFrame,
+    target_section: str | None,
+    section_order: list[str],
+) -> pd.DataFrame:
+    """Restricts Model details to predicted parameters whose Section is the
+    target section or an upstream one (see config_io.allowed_sections_upto).
+    Rows with a blank/unclassified Section are always kept. No-ops when no
+    target_section/section_order was supplied, or there's no Section column."""
+    if model_details_df is None or model_details_df.empty:
+        return model_details_df
+    sec_col = config_io.section_col(model_details_df)
+    if sec_col is None or not target_section or not section_order:
+        return model_details_df
+
+    allowed = {s.strip().lower() for s in config_io.allowed_sections_upto(section_order, target_section)}
+    sec_series = model_details_df[sec_col].astype(str).str.strip().str.lower()
+    keep_mask = sec_series.isin(allowed) | sec_series.eq("") | sec_series.eq("nan")
+    return model_details_df[keep_mask].reset_index(drop=True)
+
+
+def collect_simulation_functions(plugin: ModuleType | None) -> dict:
+    """Simulation/first-principle functions from the plant plug-in, keyed by
+    Predicted parameter name: BULK_SIMULATION (also used by the training
+    script) merged with SIMULATION (runtime-only overrides). Empty when the
+    plant has no plug-in."""
+    if plugin is None:
+        return {}
+    sim_funcs = dict(getattr(plugin, "BULK_SIMULATION", {}) or {})
+    sim_funcs.update(getattr(plugin, "SIMULATION", {}) or {})
+    return sim_funcs
+
+
+def simulate_and_update_parameter(
+    y_col: str,
+    selected_row: pd.DataFrame,
+    selected_row_updated: pd.DataFrame,
+    sim_funcs: dict,
+) -> pd.DataFrame:
+    """Runtime counterpart of the training script's bulk-simulation pass:
+    recomputes a simulation/first-principle parameter for the current row via
+    the plant plug-in. Runs at the parameter's own slot in the execution
+    order, so it reflects whatever inputs the user has overridden by then."""
+    sim_func = sim_funcs.get(y_col)
+    if sim_func is None:
+        return selected_row_updated
+
+    try:
+        needs_actual = (
+            y_col not in selected_row.columns
+            or pd.isna(pd.to_numeric(selected_row[y_col], errors="coerce").iloc[0])
+        )
+        if needs_actual:
+            actual_series = sim_func(selected_row.copy())
+            selected_row.loc[:, y_col] = float(pd.Series(actual_series).iloc[-1])
+    except Exception:
+        logger.exception("Baseline simulation for '%s' failed; keeping whatever baseline value exists.", y_col)
+
+    try:
+        sim_series = sim_func(selected_row_updated.copy())
+        selected_row_updated.loc[:, y_col] = float(pd.Series(sim_series).iloc[-1])
+    except Exception:
+        logger.exception("Simulation for '%s' failed; keeping baseline value for it.", y_col)
+    return selected_row_updated
+
+
+def predict_and_update_with_kalman(
     y_col: str,
     row_df: pd.DataFrame,
     model_details_df: pd.DataFrame,
     model_dir: str,
 ) -> pd.DataFrame:
     """Loads kalman_filter_model_{y_col}.pkl + its two scalers, runs one
-    no-measurement Kalman step over the tag's configured input features, and
-    writes the inverse-scaled prediction into row_df[y_col]."""
-    u_cols_row = model_details_df[model_details_df["Predicted parameter"] == y_col]
-    u_cols_row = u_cols_row.dropna(axis=1)
-    u_cols = u_cols_row.iloc[:, 1:].values.ravel().tolist()
+    no-measurement Kalman step over the tag's configured input features
+    (name-based, via config_io.input_param_cols — NOT positional), and writes
+    the inverse-scaled prediction into row_df[y_col]."""
+    row = model_details_df[model_details_df["Predicted parameter"] == y_col]
+    u_cols = row[config_io.input_param_cols(model_details_df)].dropna(axis=1).values.ravel().tolist()
+    u_cols = [str(c).strip() for c in u_cols if str(c).strip()]
 
     model_path = os.path.join(model_dir, f"kalman_filter_model_{y_col}.pkl")
     scaler_x_path = os.path.join(model_dir, f"scaler_X_{y_col}.pkl")
@@ -89,17 +215,20 @@ def _predict_and_update_with_kalman(
     return row_df
 
 
-def _update_parameter_from_user_input(
+def update_parameter_from_user_input(
     y_col: str,
     user_input_df: pd.DataFrame,
     row_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """Overwrites row_df[y_col] with the user-supplied override if present and
     numeric; otherwise leaves the current (baseline/predicted) value."""
-    matching = user_input_df.loc[user_input_df["Parameter"].str.strip() == y_col, "Value"]
+    if user_input_df is None or user_input_df.empty or "Parameter" not in user_input_df.columns:
+        return row_df
+
+    matching = user_input_df.loc[user_input_df["Parameter"].astype(str).str.strip() == y_col, "Value"]
     raw_val = matching.iloc[0] if not matching.empty else np.nan
     try:
-        user_value = float(raw_val) if pd.notna(raw_val) else np.nan
+        user_value = float(raw_val) if pd.notna(raw_val) and str(raw_val).strip().lower() != "none" else np.nan
     except (ValueError, TypeError):
         user_value = np.nan
 
@@ -110,308 +239,101 @@ def _update_parameter_from_user_input(
         else current_series
     )
 
-    final_value = user_value if not np.isnan(user_value) else current_value
+    final_value = user_value if not (isinstance(user_value, float) and np.isnan(user_value)) else current_value
     row_df.loc[:, y_col] = final_value
     return row_df
 
 
-# ---------------------------------------------------------------------------
-# COT (Coil Outlet Temperature) calculation chain
-# ---------------------------------------------------------------------------
-
-def _cot_calculation(df_furnace: pd.DataFrame) -> pd.DataFrame:
-    df_furnace["Plant_average_feed_rate_Coil"] = df_furnace["DMCTF_feed"] / (
-        df_furnace["Number_Of_Furnaces_Online"] * 4
-    )
-
-    df_furnace["Coil_CIP_Calculated"] = (
-        -131.3081
-        + (0.0755 * df_furnace["Plant_average_feed_rate_Coil"])
-        + (0.1463 * df_furnace["Ethane_Feed_Preheater_Ethane_Feed_Outlet_Pressure"])
-        + (0.6819 * df_furnace["Furnace_Ethane_Feed_Preheater_Ethane_Feed_Outlet_Temperature"])
-        + (0.4853 * df_furnace["Coil_Weighted_Avg_Feed_CV_opening"])
-        + (0.8766 * df_furnace["Coil_Weighted_Avg_Steam_CV_opening"])
-    )
-
-    df_furnace["Coil_Steam_Flow"] = df_furnace["Coil_Avg_SHC_Ratio"] * df_furnace["Plant_average_feed_rate_Coil"]
-
-    df_furnace["Coil_Mixed_Feed_flow"] = df_furnace["Coil_Steam_Flow"] + df_furnace["Plant_average_feed_rate_Coil"]
-
-    df_furnace["Coil_Mixed_Feed_Cp"] = (
-        (df_furnace["Coil_Steam_Flow"] * 2.067) + (df_furnace["Plant_average_feed_rate_Coil"] * 1.909)
-    ) / (df_furnace["Coil_Steam_Flow"] + df_furnace["Plant_average_feed_rate_Coil"])
-
-    df_furnace["Coil_Mixed_Feed_Mol_wt"] = df_furnace["Coil_Mixed_Feed_flow"] / (
-        (df_furnace["Plant_average_feed_rate_Coil"] / df_furnace["Furnace_Feed_Average_Molecular_Wt"])
-        + (df_furnace["Coil_Steam_Flow"] / 18.0)
-    )
-
-    df_furnace["Coil_Volumetric_Flow"] = df_furnace["Coil_Mixed_Feed_flow"] / (
-        ((df_furnace["Coil_CIP_Calculated"] + 101.325) * 0.00982963 * df_furnace["Coil_Mixed_Feed_Mol_wt"])
-        / (0.08206 * (df_furnace["Coil_Weighted_Avg_Coil_Mixed_Feed_Inlet_Temperature"] + 273.15))
-    )
-
-    df_furnace["Coil_CIP_Corrected_atma"] = np.where(
-        (df_furnace["Coil_CIP_Calculated"] / 101.325 + 1) < 5,
-        (df_furnace["Coil_CIP_Calculated"] / 101.325 + 1)
-        - (df_furnace["Coil_Volumetric_Flow"] * 144 / 1309.83) * 0.00986923,
-        (df_furnace["Coil_CIP_Calculated"] / 101.325 + 1)
-        - (df_furnace["Coil_Volumetric_Flow"] * 131 / 1209.52) * 0.00986923,
-    )
-    return df_furnace
+def _constraints_lookup(constraints_df: pd.DataFrame, parameter: str) -> pd.DataFrame | None:
+    if constraints_df is None or constraints_df.empty:
+        return None
+    rows = constraints_df[constraints_df["Parameter"].astype(str).str.strip() == str(parameter).strip()]
+    return rows if not rows.empty else None
 
 
-# ---------------------------------------------------------------------------
-# PRC (Propylene Refrigeration Compressor) section: power + turbine matching
-# ---------------------------------------------------------------------------
+def apply_linked_constraints_for_inputs(
+    row_df: pd.DataFrame,
+    input_params: list[str],
+    constraints_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Generic replacement for the old hardcoded 'bump speed to max if steam
+    flow & speed are both below their limits' blocks. For every input_param
+    about to be consumed, checks whether any Constraints row names it as a
+    'Linked Parameter' with Action == 'bump_linked_to_max'; if so, applies
+    that rule using only values from the Constraints sheet."""
+    if constraints_df is None or constraints_df.empty or "Linked Parameter" not in constraints_df.columns:
+        return row_df
 
-def _prc_section_power(df: pd.DataFrame) -> pd.DataFrame:
-    eta = 0.70  # assumed compressor efficiency
-
-    density_1st, vol_flow_1st = [], []
-    for i in range(len(df)):
-        t_k = df["PRC_1ST_STAGE_Suction_TEMP"].iloc[i] + 273.15
-        p_pa = df["PRC_1ST_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5
-        rho = PropsSI("D", "T", t_k, "P", p_pa, "Propylene")
-        vol_flow_1st.append(df["PRC_1ST_STAGE_Suction_FLOW"].iloc[i] * 1000 / rho)
-        density_1st.append(rho)
-    df["PRC_Density_1st_stage"] = density_1st
-    df["PRC VOL FLOW 1ST STAGE"] = vol_flow_1st
-
-    density_2nd, vol_flow_2nd = [], []
-    for i in range(len(df)):
-        t_k = df["PRC_2nd_stage_drum_Overhead_Temp"].iloc[i] + 273.15
-        p_pa = df["PRC_2ND_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5
-        rho = PropsSI("D", "T", t_k, "P", p_pa, "Propylene")
-        vol_flow_2nd.append(
-            (df["PRC_1ST_STAGE_Suction_FLOW"].iloc[i] + df["PRC_2nd_stage_drum_Overhead_Flow"].iloc[i]) * 1000 / rho
-        )
-        density_2nd.append(rho)
-    df["PRC_Density_2nd_stage"] = density_2nd
-    df["PRC VOL FLOW 2ND STAGE"] = vol_flow_2nd
-
-    density_3rd, vol_flow_3rd = [], []
-    for i in range(len(df)):
-        t_k = df["PRC_3RD_STAGE_Suction_TEMP"].iloc[i] + 273.15
-        p_pa = df["PRC_3RD_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5
-        rho = PropsSI("D", "T", t_k, "P", p_pa, "Propylene")
-        vol_flow_3rd.append(df["PRC_3RD_STAGE_Suction_FLOW"].iloc[i] * 1000 / rho)
-        density_3rd.append(rho)
-    df["PRC_Density_3rd_stage"] = density_3rd
-    df["PRC VOL FLOW 3RD STAGE"] = vol_flow_3rd
-
-    power_1st = []
-    for i in range(len(df)):
-        h1 = PropsSI("H", "T", df["PRC_1ST_STAGE_Suction_TEMP"].iloc[i] + 273.15, "P",
-                     df["PRC_1ST_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5, "Propylene")
-        s1 = PropsSI("S", "T", df["PRC_1ST_STAGE_Suction_TEMP"].iloc[i] + 273.15, "P",
-                     df["PRC_1ST_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5, "Propylene")
-        h2s = PropsSI("H", "P", df["PRC_1ST_STAGE_Discharge_PRESSURE"].iloc[i] * 1000 + 1e5, "S", s1, "Propylene")
-        h2 = h1 + (h2s - h1) / eta
-        power_1st.append(((df["PRC_1ST_STAGE_Suction_FLOW"].iloc[i] * 1000) / 3600) * (h2 - h1) / 1e6)
-    df["PRC_1st_stage_comp_estimated_power_MW"] = power_1st
-
-    power_2nd = []
-    for i in range(len(df)):
-        h1 = PropsSI("H", "T", df["PRC_2nd_stage_drum_Overhead_Temp"].iloc[i] + 273.15, "P",
-                     df["PRC_2ND_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5, "Propylene")
-        s1 = PropsSI("S", "T", df["PRC_2nd_stage_drum_Overhead_Temp"].iloc[i] + 273.15, "P",
-                     df["PRC_2ND_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5, "Propylene")
-        h2s = PropsSI("H", "P", df["PRC_3RD_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5, "S", s1, "Propylene")
-        h2 = h1 + (h2s - h1) / eta
-        power_2nd.append((
-            ((df["PRC_2nd_stage_drum_Overhead_Flow"].iloc[i] + df["PRC_1ST_STAGE_Suction_FLOW"].iloc[i]) * 1000)
-            / 3600
-        ) * (h2 - h1) / 1e6)
-    df["PRC_2nd_stage_comp_estimated_power_MW"] = power_2nd
-
-    power_3rd = []
-    for i in range(len(df)):
-        h1 = PropsSI("H", "T", df["PRC_3RD_STAGE_Suction_TEMP"].iloc[i] + 273.15, "P",
-                     df["PRC_3RD_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5, "Propylene")
-        s1 = PropsSI("S", "T", df["PRC_3RD_STAGE_Suction_TEMP"].iloc[i] + 273.15, "P",
-                     df["PRC_3RD_STAGE_Suction_PRESSURE"].iloc[i] * 1000 + 1e5, "Propylene")
-        h2s = PropsSI("H", "P", df["PRC_3RD_STAGE_Discharge_PRESSURE"].iloc[i] * 1000 + 1e5, "S", s1, "Propylene")
-        h2 = h1 + (h2s - h1) / eta
-        power_3rd.append(((df["PRC_3RD_STAGE_Suction_FLOW"].iloc[i] * 1000) / 3600) * (h2 - h1) / 1e6)
-    df["PRC_3rd_stage_comp_estimated_power_MW"] = power_3rd
-
-    df["PRC_Total_estimated_power_MW"] = (
-        df["PRC_1st_stage_comp_estimated_power_MW"]
-        + df["PRC_2nd_stage_comp_estimated_power_MW"]
-        + df["PRC_3rd_stage_comp_estimated_power_MW"]
-    )
-    return df
+    for p in input_params:
+        trigger_rows = constraints_df[constraints_df["Linked Parameter"].astype(str).str.strip() == str(p).strip()]
+        if trigger_rows.empty:
+            continue
+        for _, trig in trigger_rows.iterrows():
+            action = str(trig.get("Action", "")).strip().lower() or "bump_linked_to_max"
+            if action != "bump_linked_to_max":
+                continue
+            trigger_param = str(trig["Parameter"]).strip()
+            linked_param = str(trig["Linked Parameter"]).strip()
+            if trigger_param not in row_df.columns or linked_param not in row_df.columns:
+                continue
+            linked_rows = _constraints_lookup(constraints_df, linked_param)
+            if linked_rows is None:
+                continue
+            try:
+                trig_val = float(row_df[trigger_param].values[0])
+                link_val = float(row_df[linked_param].values[0])
+                trig_limit = float(trig["user input value"])
+                link_limit = float(linked_rows["user input value"].values[0])
+                max_col = config_io.constraints_max_col(linked_rows)
+                link_max = float(linked_rows[max_col].values[0])
+                if trig_val < trig_limit and link_val < link_limit:
+                    row_df.loc[:, linked_param] = link_max
+            except (ValueError, TypeError, KeyError, IndexError):
+                continue
+    return row_df
 
 
-def _isentropic_enthalpy(p_target: float, s_in: float) -> float:
-    s_f = PropsSI("S", "P", p_target, "Q", 0, "Water") / 1000
-    s_g = PropsSI("S", "P", p_target, "Q", 1, "Water") / 1000
-    if s_f < s_in < s_g:
-        x = (s_in - s_f) / (s_g - s_f)
-        h_f = PropsSI("H", "P", p_target, "Q", 0, "Water")
-        h_g = PropsSI("H", "P", p_target, "Q", 1, "Water")
-        h_iso = h_f + x * (h_g - h_f)
-    else:
-        h_iso = PropsSI("H", "P", p_target, "S", s_in, "Water")
-    return h_iso / 1000
-
-
-def _match_actual_power(row: pd.Series) -> tuple:
-    try:
-        p_steam = row["PRC_turbine_Steam_pressure"] * 1000
-        t_steam = row["PRC_turbine_Steam_Temp"] + 273.15
-        h_steam = PropsSI("H", "P", p_steam, "T", t_steam, "Water") / 1000
-
-        pe = row["PRC_turbine_Extraction_Pressure"] * 1000
-        t_sat_extraction = PropsSI("T", "P", pe, "Q", 1, "Water")
-        he = PropsSI("H", "P", pe, "T", t_sat_extraction + 0.01, "Water") / 1000
-
-        pc = row["PRC_turbine_Condensate_Pressure"] * 1000
-        t_sat_condensate = PropsSI("T", "P", pc, "Q", 0, "Water")
-        hc_liquid = PropsSI("H", "P", pc, "T", t_sat_condensate - 0.01, "Water") / 1000
-        dryness_fraction = 0.92
-        hc_vapor = PropsSI("H", "P", pc, "T", t_sat_condensate + 0.01, "Water") / 1000
-        hc = hc_liquid + hc_vapor * dryness_fraction
-
-        condensate_flow_tph = row["PRC_turbine_condensate_flow"]
-        condensate_flow_kg_hr = condensate_flow_tph * 1000
-        actual_power = row["PRC_Total_estimated_power_MW"]
-
-        def objective(extraction_flow_tph: float) -> float:
-            extraction_flow_kg_hr = extraction_flow_tph * 1000
-            power = (
-                (extraction_flow_kg_hr * (h_steam - he)) + (condensate_flow_kg_hr * (h_steam - hc))
-            ) / 3600 / 1000
-            return (power - actual_power) ** 2
-
-        result = minimize_scalar(objective, bounds=(10, 350), method="bounded")
-
-        if result.success:
-            ef_opt = result.x
-            ef_kg_hr = ef_opt * 1000
-            sf_opt = ef_opt + condensate_flow_tph
-            sf_kg_hr = sf_opt * 1000
-            power_matched_ee = ((ef_kg_hr * (h_steam - he)) + (condensate_flow_kg_hr * (h_steam - hc))) / 3600 / 1000
-            h2_actual = (ef_kg_hr * he + condensate_flow_kg_hr * hc) / sf_kg_hr
-            power_matched_sf = (h_steam - h2_actual) * (sf_kg_hr / 3600 / 1000)
-            return ef_opt, sf_opt, power_matched_ee, power_matched_sf, h2_actual
-
-        return (
-            row["PRC_turbine_Extraction_flow"], row["PRC_turbine_steam_flow"],
-            row["PRC_turbine_current_Turbine_power_MW_based_on_EE"],
-            row["PRC_turbine_current_Turbine_power_MW_based_on_steam_flow"], None,
-        )
-    except Exception:
-        return (
-            row["PRC_turbine_Extraction_flow"], row["PRC_turbine_steam_flow"],
-            row["PRC_turbine_current_Turbine_power_MW_based_on_EE"],
-            row["PRC_turbine_current_Turbine_power_MW_based_on_steam_flow"], None,
-        )
-
-
-def _prc_turbine_extraction_steam_flow_prediction(df: pd.DataFrame) -> pd.DataFrame:
-    steam_enth, steam_entr, out_enth, out_isen_enth = [], [], [], []
-    power_ext, power_exh, power_ee, power_sf, spec_steam = [], [], [], [], []
-
-    for i in range(len(df)):
-        steam_flow_tph = df["PRC_turbine_steam_flow"].iloc[i]
-        condensate_flow_tph = df["PRC_turbine_condensate_flow"].iloc[i]
-        extraction_flow_tph = df["PRC_turbine_Extraction_flow"].iloc[i]
-
-        steam_flow_kg_hr = steam_flow_tph * 1000
-        extraction_flow_kg_hr = extraction_flow_tph * 1000
-        condensate_flow_kg_hr = condensate_flow_tph * 1000
-
-        p_steam = df["PRC_turbine_Steam_pressure"].iloc[i] * 1000
-        t_steam = df["PRC_turbine_Steam_Temp"].iloc[i] + 273.15
-
-        pe = df["PRC_turbine_Extraction_Pressure"].iloc[i] * 1000
-        t_sat_extraction = PropsSI("T", "P", pe, "Q", 1, "Water")
-
-        pc = df["PRC_turbine_Condensate_Pressure"].iloc[i] * 1000
-        t_sat_condensate = PropsSI("T", "P", pc, "Q", 0, "Water")
-
-        h_steam = PropsSI("H", "P", p_steam, "T", t_steam, "Water") / 1000
-        s_steam = PropsSI("S", "P", p_steam, "T", t_steam, "Water") / 1000
-
-        he = PropsSI("H", "P", pe, "T", t_sat_extraction + 0.01, "Water") / 1000
-        hc_liquid = PropsSI("H", "P", pc, "T", t_sat_condensate - 0.01, "Water") / 1000
-        dryness_fraction = 0.92
-        hc_vapor = PropsSI("H", "P", pc, "T", t_sat_condensate + 0.01, "Water") / 1000
-        hc = hc_liquid + hc_vapor * dryness_fraction
-
-        power_gen_extraction = extraction_flow_kg_hr * (h_steam - he) / 3600 / 1000
-        power_gen_exhaust = condensate_flow_kg_hr * (h_steam - hc) / 3600 / 1000
-        turbine_power_mw_ee = power_gen_extraction + power_gen_exhaust
-        specific_steam_consumption = steam_flow_tph / turbine_power_mw_ee
-
-        he_s = _isentropic_enthalpy(pe, s_steam)
-        hc_s = _isentropic_enthalpy(pc, s_steam)
-
-        h2_actual = (extraction_flow_kg_hr * he + condensate_flow_kg_hr * hc) / steam_flow_kg_hr
-        h2s_ideal = (extraction_flow_kg_hr * he_s + condensate_flow_kg_hr * hc_s) / steam_flow_kg_hr
-
-        turbine_power_mw_sf = (h_steam - h2_actual) * (steam_flow_kg_hr / (3600 * 1000))
-
-        steam_enth.append(h_steam)
-        steam_entr.append(s_steam)
-        out_enth.append(h2_actual)
-        out_isen_enth.append(h2s_ideal)
-        power_ext.append(power_gen_extraction)
-        power_exh.append(power_gen_exhaust)
-        power_ee.append(turbine_power_mw_ee)
-        power_sf.append(turbine_power_mw_sf)
-        spec_steam.append(specific_steam_consumption)
-
-    df["PRC_turbine_current_steam_enthalpy_KJ_Kg"] = steam_enth
-    df["PRC_turbine_current_steam_entropy_KJ_KgK"] = steam_entr
-    df["PRC_turbine_current_outlet_ethalpy_KJ_Kg"] = out_enth
-    df["PRC_turbine_current_outlet_isentropic_ethalpy_KJ_Kg"] = out_isen_enth
-    df["PRC_turbine_current_power_gen_extraction_MW"] = power_ext
-    df["PRC_turbine_current_power_gen_exhaust_MW"] = power_exh
-    df["PRC_turbine_current_Turbine_power_MW_based_on_EE"] = power_ee
-    df["PRC_turbine_current_Turbine_power_MW_based_on_steam_flow"] = power_sf
-    df["PRC_turbine_current_Specific_steam_consumption_MT_MW"] = spec_steam
-
-    optimized_extraction, calculated_steam_flow = [], []
-    matched_power_ee, matched_power_sf, matched_h2 = [], [], []
-    for _, row in df.iterrows():
-        ef, sf, p_ee, p_sf, h2 = _match_actual_power(row)
-        optimized_extraction.append(ef)
-        calculated_steam_flow.append(sf)
-        matched_power_ee.append(p_ee)
-        matched_power_sf.append(p_sf)
-        matched_h2.append(h2)
-
-    df["PRC_turbine_Optimized_Extraction_flow_TPH"] = optimized_extraction
-    df["PRC_turbine_Calculated_Steam_flow_TPH"] = calculated_steam_flow
-    df["PRC_turbine_Matched_Turbine_power_MW_EE"] = matched_power_ee
-    df["PRC_turbine_Matched_Turbine_power_MW_SF"] = matched_power_sf
-    df["PRC_turbine_Matched_h2_actual_KJ_Kg"] = matched_h2
-    df["Power_Error"] = df["PRC_turbine_Matched_Turbine_power_MW_EE"] - df["PRC_Total_estimated_power_MW"]
-    df["Power_EE_vs_SF_Diff"] = df["PRC_turbine_Matched_Turbine_power_MW_EE"] - df["PRC_turbine_Matched_Turbine_power_MW_SF"]
-    df["Devaiation in steam flow (Simulated-actual)"] = df["PRC_turbine_Calculated_Steam_flow_TPH"] - df["PRC_turbine_steam_flow"]
-    df["Devaiation in extraction (Simulated-actual)"] = df["PRC_turbine_Optimized_Extraction_flow_TPH"] - df["PRC_turbine_Extraction_flow"]
-    df["Specific_steam_consumption_MT_MW_updated"] = df["PRC_turbine_Calculated_Steam_flow_TPH"] / df["PRC_Total_estimated_power_MW"]
-    return df
-
-
-# ---------------------------------------------------------------------------
-# Constraint-limiting mask helper (CGC/PRC/ERC turbine RPM vs steam flow)
-# ---------------------------------------------------------------------------
-
-def _apply_rpm_constraint_limit(
+def check_abort_constraints(
     row_df: pd.DataFrame,
     constraints_df: pd.DataFrame,
-    steam_flow_col: str,
-    rpm_col: str,
+    y_col: str,
+) -> tuple[bool, str | None]:
+    """Generic replacement for the hardcoded 'CGC_5TH_STG_DISCH_PRES > limit
+    -> abort' check. Any Constraints row with Action == 'abort_if_exceeds' on
+    y_col hard-stops the run."""
+    if constraints_df is None or constraints_df.empty or "Action" not in constraints_df.columns:
+        return False, None
+    rows = constraints_df[
+        (constraints_df["Parameter"].astype(str).str.strip() == y_col)
+        & (constraints_df["Action"].astype(str).str.strip().str.lower() == "abort_if_exceeds")
+    ]
+    if rows.empty or y_col not in row_df.columns:
+        return False, None
+    try:
+        limit = float(rows["user input value"].values[0])
+        val = float(row_df[y_col].values[0])
+    except (ValueError, TypeError, IndexError):
+        return False, None
+    if val > limit:
+        remark = rows["Remark"].values[0] if "Remark" in rows.columns and pd.notna(rows["Remark"].values[0]) else None
+        msg = remark or f"constraints hit: {y_col} ({val:.2f}) exceeded limit ({limit:.2f})"
+        return True, msg
+    return False, None
+
+
+def apply_leaf_overrides_and_constraints(
+    row_df: pd.DataFrame,
+    input_params: list[str],
+    user_input_df: pd.DataFrame,
+    constraints_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    steam_limit = constraints_df.loc[constraints_df["Parameter"] == steam_flow_col, "user input value"].values[0]
-    rpm_limit = constraints_df.loc[constraints_df["Parameter"] == rpm_col, "user input value"].values[0]
-    rpm_max = constraints_df.loc[constraints_df["Parameter"] == rpm_col, CONSTRAINTS_MAX_COL].values[0]
-    mask = (row_df[steam_flow_col] < steam_limit) & (row_df[rpm_col] < rpm_limit)
-    row_df.loc[mask, rpm_col] = rpm_max
+    """Right before a parameter is predicted: (a) applies any linked 'bump to
+    max' constraint on its raw inputs, then (b) applies a user override on
+    any of its raw inputs the user has set directly."""
+    row_df = apply_linked_constraints_for_inputs(row_df, input_params, constraints_df)
+    for p in input_params:
+        if p in row_df.columns:
+            row_df = update_parameter_from_user_input(p, user_input_df, row_df)
     return row_df
 
 
@@ -425,173 +347,121 @@ def whatif_analysis(
     user_input_df: pd.DataFrame,
     config: WhatIfConfig,
     model_dir: str,
+    plugin: ModuleType | None = None,
+    target_section: str | None = None,
     write_actual_vs_estimated_xlsx: bool = False,
     output_path: str | None = None,
 ) -> WhatIfResult:
-    model_details_df = config.model_details_df
+    if plugin is None:
+        plugin = plants.load_plant_formulas()
+
+    section_order = config.section_order_list()
+    target_section = target_section if target_section is not None else config.target_section
+
+    model_details_df = filter_model_details_by_section(config.model_details_df, target_section, section_order)
     constraints_df = config.constraints_df
+
+    owned = set(getattr(plugin, "OWNED_PARAMETERS", set())) if plugin else set()
+    skip = set(getattr(plugin, "SKIP_PARAMETERS", set())) if plugin else set()
+    hooks = dict(getattr(plugin, "HOOKS", {})) if plugin else {}
+
+    # A predicted parameter whose "model type" is non-data-driven (e.g.
+    # "First principle") never had a Kalman filter trained for it — treat it
+    # like a plugin-owned parameter (skip the Kalman step) without requiring
+    # a plug-in just to declare that.
+    simulation_params = config_io.non_data_model_parameters(model_details_df)
+    owned = owned | simulation_params
+
+    sim_funcs = collect_simulation_functions(plugin)
+    missing_sim = sorted(p for p in simulation_params if p not in sim_funcs and p not in skip)
+    if missing_sim:
+        logger.info(
+            "Simulation-type parameter(s) %s have no SIMULATION/BULK_SIMULATION function; "
+            "they'll keep their baseline value unless a HOOK sets them.",
+            missing_sim,
+        )
+
+    graph = build_dependency_graph(model_details_df)
+    execution_order = topological_execution_order(graph)
 
     selected_row = df.loc[[user_time]].copy()
     selected_row.index.name = "Timestamp"
     selected_row_updated = selected_row.copy()
 
-    def kalman(y_col: str) -> None:
-        nonlocal selected_row_updated
-        selected_row_updated = _predict_and_update_with_kalman(
-            y_col, selected_row_updated, model_details_df, model_dir
-        )
+    # Apply every user override up front, to every column it names — not
+    # just the ones declared as some predicted parameter's own input.
+    # Physics/simulation hooks often read raw historian tags directly that
+    # were never declared as an "Input parameter" anywhere in Model details.
+    if user_input_df is not None and not user_input_df.empty and "Parameter" in user_input_df.columns:
+        for p in user_input_df["Parameter"].dropna().astype(str).str.strip().unique():
+            if p and p in selected_row_updated.columns:
+                selected_row_updated = update_parameter_from_user_input(p, user_input_df, selected_row_updated)
 
-    def override(y_col: str) -> None:
-        nonlocal selected_row_updated
-        selected_row_updated = _update_parameter_from_user_input(
-            y_col, user_input_df, selected_row_updated
-        )
+    hooks = {str(k).strip().lower().replace(" ", ""): v for k, v in hooks.items()}
+    hooks_fired: set[str] = set()
 
-    # DMCTF feed — user override only
-    override("DMCTF_feed")
+    def _run_hook(hook_key: str, sr: pd.DataFrame, sru: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+        hooks_fired.add(hook_key)
+        result = hooks[hook_key](sr, sru)
+        if isinstance(result, tuple) and len(result) == 2:
+            return result
+        return sr, result
 
-    # Quench tower overhead temp — Kalman then override
-    kalman("Quench_tower_overhead_temp")
-    override("Quench_tower_overhead_temp")
-
-    # CGC turbine RPM constraint-limit, then user override
-    selected_row_updated = _apply_rpm_constraint_limit(
-        selected_row_updated, constraints_df, "CGC_Turbine_HP_Steam_flow", "CGC_TURBINE_1_SPEED_(RPM)"
-    )
-    override("CGC_TURBINE_1_SPEED_(RPM)")
-
-    kalman("CGC_STAGE_1_SUCTION_PRESSURE")
-    override("CGC_STAGE_1_SUCTION_PRESSURE")
-
-    # ---- COT calculation chain (actual then scenario) ----
-    selected_row = _cot_calculation(selected_row)
-
-    delta_cgc_suction_pressure_old = 0
-    selected_row["Corrected_COP_Furnace"] = selected_row["Coil_Weighted_Avg_COP"] + delta_cgc_suction_pressure_old
-    selected_row["Furnace_Effluent_C2H6"] = (
-        (selected_row["DMCTF_feed"] / 1000) * (selected_row["Furnace_Normalised_Feed_C2H6_Wt"] / 100)
-        * (1 - selected_row["Furnace_conversion"])
-    )
-    selected_row["Furnace_Effluent_C2H6_wt%"] = (
-        selected_row["Furnace_Effluent_C2H6"] / (selected_row["DMCTF_feed"] / 1000)
-    ) * 100
-    selected_row["Coil_Avg_COT_actual"] = (
-        (
-            0.937913371 * (selected_row["Coil_CIP_Corrected_atma"] - 0.3)
-            - 2.413045433 * (selected_row["Corrected_COP_Furnace"] / 101.325 + 1 - 0.2)
-            + 2.774285758 * selected_row["Coil_Avg_SHC_Ratio"]
-            + 0.002253435 * selected_row["Plant_average_feed_rate_Coil"]
-            - 0.463411867 * selected_row["Furnace_Normalised_Feed_C3H8_Wt"]
-            + 0.674941411 * selected_row["Furnace_Normalised_Feed_C2H6_Wt"]
-            + 337.8851416 - selected_row["Furnace_Effluent_C2H6_wt%"]
-        ) / 0.451606991
-    )
-
-    selected_row_updated = _cot_calculation(selected_row_updated)
-
-    delta_cgc_suction_pressure = (
-        selected_row_updated["CGC_STAGE_1_SUCTION_PRESSURE"] - selected_row["CGC_STAGE_1_SUCTION_PRESSURE"]
-    )
-    selected_row_updated["Corrected_COP_Furnace"] = (
-        selected_row_updated["Coil_Weighted_Avg_COP"] + delta_cgc_suction_pressure
-    )
-
-    if (selected_row_updated["DMCTF_feed"].iloc[0] / 1000) - selected_row_updated["Fresh_ethane_feed"].iloc[0] > 70:
-        selected_row_updated["Fresh_ethane_feed"] = (selected_row_updated["DMCTF_feed"] / 1000) - 70
-
-    selected_row_updated["Furnace_conversion"] = (
-        (selected_row_updated["DMCTF_feed"] / 1000) * (selected_row_updated["Furnace_Normalised_Feed_C2H6_Wt"] / 100)
-        - (selected_row_updated["DMCTF_feed"] / 1000 - selected_row_updated["Fresh_ethane_feed"])
-    ) / ((selected_row_updated["DMCTF_feed"] / 1000) * selected_row_updated["Furnace_Normalised_Feed_C2H6_Wt"] / 100)
-
-    selected_row_updated["Furnace_Effluent_C2H6"] = (
-        (selected_row_updated["DMCTF_feed"] / 1000) * (selected_row_updated["Furnace_Normalised_Feed_C2H6_Wt"] / 100)
-        * (1 - selected_row_updated["Furnace_conversion"])
-    )
-    selected_row_updated["Furnace_Effluent_C2H6_wt%"] = (
-        selected_row_updated["Furnace_Effluent_C2H6"] / (selected_row_updated["DMCTF_feed"] / 1000)
-    ) * 100
-    selected_row_updated["Coil_Avg_COT"] = (
-        (
-            0.937913371 * (selected_row_updated["Coil_CIP_Corrected_atma"] - 0.3)
-            - 2.413045433 * (selected_row_updated["Corrected_COP_Furnace"] / 101.325 + 1 - 0.2)
-            + 2.774285758 * selected_row_updated["Coil_Avg_SHC_Ratio"]
-            + 0.002253435 * selected_row_updated["Plant_average_feed_rate_Coil"]
-            - 0.463411867 * selected_row_updated["Furnace_Normalised_Feed_C3H8_Wt"]
-            + 0.674941411 * selected_row_updated["Furnace_Normalised_Feed_C2H6_Wt"]
-            + 337.8851416 - selected_row_updated["Furnace_Effluent_C2H6_wt%"]
-        ) / 0.451606991
-    )
-    delta_cot = selected_row_updated["Coil_Avg_COT"] - selected_row["Coil_Avg_COT_actual"]
-    selected_row_updated["Coil_Avg_COT"] = selected_row["Coil_Avg_COT"] + delta_cot
-
-    # ---- CGC 5th stage discharge pressure + hard constraint gate ----
-    kalman("CGC_5TH_STG_DISCH_PRES")
-    override("CGC_5TH_STG_DISCH_PRES")
-
-    param_name = "CGC_5TH_STG_DISCH_PRES"
     constraint_hit = False
-    constraint_message = None
-    mask = constraints_df["Parameter"] == param_name
-    if mask.any():
-        limit = constraints_df.loc[mask, "user input value"].values[0]
-        if selected_row_updated[param_name].values[0] > limit:
-            selected_row_updated[param_name] = "constraints hits: Reduce the DMCTF"
+    constraint_message: str | None = None
+
+    for y_col in execution_order:
+        if y_col in skip:
+            continue
+
+        input_params = graph.get(y_col, [])
+        selected_row_updated = apply_leaf_overrides_and_constraints(
+            selected_row_updated, input_params, user_input_df, constraints_df
+        )
+
+        if y_col in simulation_params:
+            selected_row_updated = simulate_and_update_parameter(
+                y_col=y_col, selected_row=selected_row, selected_row_updated=selected_row_updated,
+                sim_funcs=sim_funcs,
+            )
+        elif y_col not in owned and y_col in selected_row_updated.columns:
+            try:
+                selected_row_updated = predict_and_update_with_kalman(
+                    y_col, selected_row_updated, model_details_df, model_dir,
+                )
+            except FileNotFoundError:
+                logger.info("No trained model for '%s' in %s; keeping baseline value.", y_col, model_dir)
+
+        selected_row_updated = update_parameter_from_user_input(y_col, user_input_df, selected_row_updated)
+
+        aborted, msg = check_abort_constraints(selected_row_updated, constraints_df, y_col)
+        if aborted:
+            selected_row_updated[y_col] = msg
             constraint_hit = True
-            constraint_message = "constraints hits: Reduce the DMCTF"
+            constraint_message = msg
+            break
 
-    if constraint_hit:
-        result = _build_result(selected_row, selected_row_updated, user_time, constraint_hit, constraint_message)
-        if write_actual_vs_estimated_xlsx and output_path:
-            _write_actual_vs_estimated(selected_row, selected_row_updated, output_path)
-        return result
+        hook_key = f"after:{y_col}".strip().lower().replace(" ", "")
+        if hook_key in hooks:
+            selected_row, selected_row_updated = _run_hook(hook_key, selected_row, selected_row_updated)
 
-    # ---- CGC power / steam flow ----
-    kalman("CGC_Power_KW")
-    kalman("CGC_Turbine_HP_Steam_flow")
+    if not constraint_hit:
+        # Safety net: any hook whose trigger parameter never appeared in the
+        # execution order (missing/misspelled in Model details) still runs,
+        # so its outputs don't silently stay frozen at baseline.
+        for hook_key in hooks:
+            if hook_key in hooks_fired:
+                continue
+            logger.warning(
+                "Hook '%s' was never triggered by the execution order; running it now "
+                "so its output parameters still get computed.", hook_key,
+            )
+            try:
+                selected_row, selected_row_updated = _run_hook(hook_key, selected_row, selected_row_updated)
+            except Exception:
+                logger.exception("Hook '%s' failed in the safety-net pass.", hook_key)
 
-    # ---- PRC section ----
-    selected_row_updated = _apply_rpm_constraint_limit(
-        selected_row_updated, constraints_df, "PRC_turbine_steam_flow", "PRC_turbine_RPM"
-    )
-    override("PRC_turbine_RPM")
-
-    kalman("PRC_1ST_STAGE_Suction_FLOW")
-    kalman("PRC_1ST_STAGE_Suction_PRESSURE")
-    override("PRC_1ST_STAGE_Suction_PRESSURE")
-    kalman("PRC_2nd_stage_drum_Overhead_Flow")
-
-    selected_row_updated = _prc_section_power(selected_row_updated)
-    selected_row_updated = _prc_turbine_extraction_steam_flow_prediction(selected_row_updated)
-
-    # ---- ERC section ----
-    selected_row_updated = _apply_rpm_constraint_limit(
-        selected_row_updated, constraints_df, "ERC_turbine_steam_flow", "ERC_turbine_Speed"
-    )
-    override("ERC_turbine_Speed")
-
-    kalman("ERC_2nd_stage_drum_Overhead_Flow")
-    kalman("ERC_turbine_steam_flow")
-    kalman("ERC_power")
-    kalman("ERC_1ST_STAGE_Suction_FLOW")
-    kalman("ERC_1ST_STAGE_Suction_PRESSURE")
-    override("ERC_1ST_STAGE_Suction_PRESSURE")
-
-    selected_row_updated["Total_Power_(KW)"] = (
-        selected_row_updated["CGC_Power_KW"]
-        + selected_row_updated["PRC_Total_estimated_power_MW"] * 1000
-        + selected_row_updated["ERC_power"]
-    )
-    selected_row_updated["Total_required_steam_flow_(TPH)"] = (
-        selected_row_updated["CGC_Turbine_HP_Steam_flow"]
-        + selected_row_updated["PRC_turbine_Calculated_Steam_flow_TPH"]
-        + selected_row_updated["ERC_turbine_steam_flow"]
-    )
-
-    kalman("TOTAL_ETHYLENE_LOSS_to_fuel")
-    kalman("Ethylene_product_flow")
-
-    result = _build_result(selected_row, selected_row_updated, user_time, constraint_hit=False, constraint_message=None)
+    result = _build_result(selected_row, selected_row_updated, user_time, constraint_hit, constraint_message)
     if write_actual_vs_estimated_xlsx and output_path:
         _write_actual_vs_estimated(selected_row, selected_row_updated, output_path)
     return result

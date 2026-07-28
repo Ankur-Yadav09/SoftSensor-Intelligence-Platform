@@ -21,7 +21,7 @@ from typing import Any, Dict, List
 import pandas as pd
 from fastapi import HTTPException, UploadFile
 
-from src.whatif import config_io, constants, engine, historian, model_status, paths, wizard
+from src.whatif import config_io, engine, historian, kpi, model_status, paths, plants, wizard
 from src.whatif.config_io import WhatIfConfig
 
 from backend.app.jobs.manager import job_manager
@@ -243,6 +243,153 @@ def commit_model_mapping(body: schemas.MappingRowsRequest) -> schemas.RowsRespon
     return schemas.RowsResponse(rows=body.rows)
 
 
+# ---------------------------------------------------------------------------
+# New config sheets (Section Order, MV/DV/CV taglist, Constraints, User
+# Inputs, Column Order, Target Section) -- same stateless echo-back pattern
+# as get_pi_mapping()/commit_mapping() above: the client carries full sheet
+# state per request, there's no server-side session to persist into except
+# via the explicit save_config() call below.
+# ---------------------------------------------------------------------------
+
+def get_section_order() -> schemas.RowsResponse:
+    cfg = _load_config()
+    rows = json.loads(cfg.section_order_df.to_json(orient="records")) if not cfg.section_order_df.empty else []
+    return schemas.RowsResponse(rows=rows)
+
+
+def commit_section_order(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return schemas.RowsResponse(rows=body.rows)
+
+
+def get_mvdvcv_taglist() -> schemas.RowsResponse:
+    cfg = _load_config()
+    rows = json.loads(cfg.mvdvcv_df.to_json(orient="records")) if not cfg.mvdvcv_df.empty else []
+    return schemas.RowsResponse(rows=rows)
+
+
+def commit_mvdvcv_taglist(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return schemas.RowsResponse(rows=body.rows)
+
+
+def get_constraints() -> schemas.RowsResponse:
+    cfg = _load_config()
+    rows = json.loads(cfg.constraints_df.to_json(orient="records")) if not cfg.constraints_df.empty else []
+    return schemas.RowsResponse(rows=rows)
+
+
+def commit_constraints(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return schemas.RowsResponse(rows=body.rows)
+
+
+def get_user_inputs() -> schemas.RowsResponse:
+    cfg = _load_config()
+    rows = json.loads(cfg.user_inputs_df.to_json(orient="records")) if not cfg.user_inputs_df.empty else []
+    return schemas.RowsResponse(rows=rows)
+
+
+def commit_user_inputs(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return schemas.RowsResponse(rows=body.rows)
+
+
+def get_column_order() -> schemas.RowsResponse:
+    cfg = _load_config()
+    rows = json.loads(cfg.display_order_df.to_json(orient="records")) if not cfg.display_order_df.empty else []
+    return schemas.RowsResponse(rows=rows)
+
+
+def commit_column_order(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return schemas.RowsResponse(rows=body.rows)
+
+
+def _target_section_response(section_order: List[str], target_section: str | None) -> schemas.TargetSectionResponse:
+    active_scope = config_io.allowed_sections_upto(section_order, target_section)
+    excluded = [s for s in section_order if s not in active_scope]
+    return schemas.TargetSectionResponse(
+        section_order=section_order, target_section=target_section,
+        active_scope=active_scope, excluded_sections=excluded,
+    )
+
+
+def get_target_section() -> schemas.TargetSectionResponse:
+    cfg = _load_config()
+    return _target_section_response(cfg.section_order_list(), cfg.target_section)
+
+
+def set_target_section(body: schemas.TargetSectionRequest) -> schemas.TargetSectionResponse:
+    """Stateless like every other config endpoint here: doesn't persist by
+    itself. The Dashboard/Case Setup hold the chosen target_section
+    client-side and pass it explicitly to compute/tag-options/validation-
+    filter; use config/save to persist it into Config_file.xlsx."""
+    cfg = _load_config()
+    return _target_section_response(cfg.section_order_list(), body.target_section)
+
+
+def save_config(body: schemas.ConfigSaveRequest) -> schemas.ConfigStatusResponse:
+    """Writes all 8 sheets to Config_file.xlsx in one call -- the wizard's
+    primary persistence path, replacing the download-then-reupload round trip
+    export_config()/upload_config() otherwise requires."""
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(body.pi_mapping_rows).to_excel(writer, sheet_name="PI_generalised_Name", index=False)
+        pd.DataFrame(body.model_details_rows).to_excel(writer, sheet_name="Model details", index=False)
+        pd.DataFrame(body.constraints_rows).to_excel(writer, sheet_name="Constraints", index=False)
+        pd.DataFrame(body.user_inputs_rows).to_excel(writer, sheet_name="user inputs", index=False)
+        pd.DataFrame(body.display_order_rows).to_excel(writer, sheet_name="display_column_order", index=False)
+        pd.DataFrame(body.section_order_rows).to_excel(writer, sheet_name="Section Order", index=False)
+        pd.DataFrame(body.mvdvcv_rows).to_excel(writer, sheet_name="MV_DV_CV_taglist", index=False)
+        pd.DataFrame({"Target Section": [body.target_section or ""]}).to_excel(
+            writer, sheet_name="Target Section", index=False
+        )
+
+    try:
+        _atomic_write_bytes(paths.config_file(), buf.getvalue())
+    except OSError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Could not save the configuration to {paths.config_file()}: {e}. "
+                "This usually means the file is currently open in Excel or being synced by OneDrive/cloud "
+                "storage — close it and try again."
+            ),
+        )
+    return get_config_status()
+
+
+_corr_cache: Dict[str, Any] = {"path": None, "mtime": None, "corr": None}
+_corr_cache_lock = threading.Lock()
+
+
+def get_correlation_matrix() -> schemas.CorrelationMatrixResponse:
+    path = paths.training_workbook()
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail=f"Training dataset not found at {path}")
+    mtime = os.path.getmtime(path)
+    with _corr_cache_lock:
+        if _corr_cache["path"] == path and _corr_cache["mtime"] == mtime:
+            corr = _corr_cache["corr"]
+        else:
+            corr = None
+    if corr is None:
+        df = _load_historian()
+        corr = df.corr(method="pearson", numeric_only=True).round(4)
+        with _corr_cache_lock:
+            _corr_cache["path"] = path
+            _corr_cache["mtime"] = mtime
+            _corr_cache["corr"] = corr
+
+    matrix = [[None if pd.isna(v) else float(v) for v in row] for row in corr.to_numpy()]
+    return schemas.CorrelationMatrixResponse(columns=corr.columns.tolist(), matrix=matrix, n_rows=len(corr))
+
+
+def get_accuracy_summary() -> schemas.AccuracySummaryResponse:
+    path = os.path.join(paths.model_dir(), "Model_accuracy_summary.csv")
+    if not os.path.isfile(path):
+        return schemas.AccuracySummaryResponse(rows=[], available=False)
+    df = pd.read_csv(path)
+    rows = json.loads(df.to_json(orient="records"))
+    return schemas.AccuracySummaryResponse(rows=rows, available=True)
+
+
 def export_config(body: schemas.ConfigExportRequest):
     pi_df = pd.DataFrame(body.pi_mapping_rows)
     model_df = pd.DataFrame(body.model_details_rows)
@@ -256,6 +403,14 @@ def export_config(body: schemas.ConfigExportRequest):
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         pi_df.to_excel(writer, sheet_name="PI_generalised_Name", index=False)
         model_df.to_excel(writer, sheet_name="Model details", index=False)
+        pd.DataFrame(body.constraints_rows).to_excel(writer, sheet_name="Constraints", index=False)
+        pd.DataFrame(body.user_inputs_rows).to_excel(writer, sheet_name="user inputs", index=False)
+        pd.DataFrame(body.display_order_rows).to_excel(writer, sheet_name="display_column_order", index=False)
+        pd.DataFrame(body.section_order_rows).to_excel(writer, sheet_name="Section Order", index=False)
+        pd.DataFrame(body.mvdvcv_rows).to_excel(writer, sheet_name="MV_DV_CV_taglist", index=False)
+        pd.DataFrame({"Target Section": [body.target_section or ""]}).to_excel(
+            writer, sheet_name="Target Section", index=False
+        )
     return (
         buf.getvalue(),
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -300,7 +455,12 @@ def _model_mapping_filled() -> bool:
 
 
 def get_models_status() -> schemas.ModelStatusResponse:
-    status = model_status.check_models_trained(paths.model_dir())
+    try:
+        cfg = _load_config()
+        required_tags = model_status.required_kalman_tags(cfg.model_details_df)
+    except HTTPException:
+        required_tags = []
+    status = model_status.check_models_trained(paths.model_dir(), required_tags)
     raw_sim_present = os.path.isfile(paths.historian_file())
     training_data_present = os.path.isfile(paths.training_workbook())
     mapping_filled = _model_mapping_filled()
@@ -319,7 +479,7 @@ def get_models_status() -> schemas.ModelStatusResponse:
         tags_ok=status.tags_ok,
         tags_missing=status.tags_missing,
         pkl_count=status.pkl_count,
-        required_pkl_count=len(model_status.REQUIRED_KALMAN_TAGS) * 3,
+        required_pkl_count=len(required_tags) * 3,
         raw_sim_present=raw_sim_present,
         training_data_present=training_data_present,
         model_mapping_filled=mapping_filled,
@@ -346,7 +506,12 @@ def _run_training_subprocess() -> Dict[str, Any]:
         capture_output=True,
         text=True,
     )
-    status = model_status.check_models_trained(paths.model_dir())
+    try:
+        cfg = config_io.load_all_config(paths.config_file())
+        required_tags = model_status.required_kalman_tags(cfg.model_details_df)
+    except (config_io.ConfigSchemaError, OSError):
+        required_tags = []
+    status = model_status.check_models_trained(paths.model_dir(), required_tags)
     raw_sim_present = os.path.isfile(paths.historian_file())
     success = proc.returncode == 0 and (status.pkl_count > 0 or raw_sim_present)
     return {
@@ -396,13 +561,37 @@ def _limits_for(tags: List[str], df: pd.DataFrame, cfg: WhatIfConfig) -> Dict[st
     return out
 
 
+def _load_plugin():
+    """Plain package import, cheap after the first call (Python module
+    cache) -- no need for a separate mtime-based cache like config/historian."""
+    return plants.load_plant_formulas()
+
+
 def get_tag_options(body: schemas.TagOptionsRequest) -> schemas.TagOptionsResponse:
     """3-tier source resolution: wizard-generated tags -> config 'user inputs'
     sheet -> full historian dropdown fallback (ported from the dashboard tab's
-    Source A/B/C logic)."""
+    Source A/B/C logic). When target_section is given, all_tags is scoped to
+    PI tags belonging to the target section or an upstream one."""
     cfg = _load_config()
     df = _load_historian()
     all_tags = sorted(df.columns.astype(str).tolist())
+
+    if body.target_section and not cfg.pi_names_df.empty and "Section" in cfg.pi_names_df.columns:
+        allowed = {
+            s.strip().lower()
+            for s in config_io.allowed_sections_upto(cfg.section_order_list(), body.target_section)
+        }
+        pi_norm = wizard.normalize_pi_df(cfg.pi_names_df)
+        # The historian's columns are named after "Generalized Description"
+        # (e.g. "CGC_STAGE_1_SUCTION_PRESSURE"), not "Pi_tags" (the raw PI
+        # point name, e.g. "YN.ETH1.13P185") — scope against the former.
+        scoped_tags = set(
+            pi_norm.loc[
+                pi_norm["Section"].astype(str).str.strip().str.lower().isin(allowed), "Generalized Description"
+            ]
+        )
+        if scoped_tags:
+            all_tags = sorted(t for t in all_tags if t in scoped_tags)
 
     generated_tags = sorted(t for t in body.generated_tags if t in df.columns)
 
@@ -482,9 +671,12 @@ def run_scenario(body: schemas.WhatIfScenarioRequest) -> schemas.WhatIfScenarioR
     if body.write_actual_vs_estimated_xlsx:
         output_path = paths.actual_vs_estimated_file(ts.strftime("%Y%m%d_%H%M%S"))
 
+    plugin = _load_plugin()
     try:
         result = engine.whatif_analysis(
             df, ts, user_input_df, cfg, paths.model_dir(),
+            plugin=plugin,
+            target_section=body.target_section,
             write_actual_vs_estimated_xlsx=body.write_actual_vs_estimated_xlsx,
             output_path=output_path,
         )
@@ -505,7 +697,7 @@ def run_scenario(body: schemas.WhatIfScenarioRequest) -> schemas.WhatIfScenarioR
         rows.append(schemas.WhatIfScenarioRow(parameter=key, actual=act, estimated=est, change=change))
 
     kpis: List[schemas.WhatIfKpi] = []
-    for tag in constants.KPI_TAGS:
+    for tag in kpi.derive_kpi_tags(cfg, plugin):
         try:
             act_f = float(result.actual.get(tag))
             est_f = float(result.estimated.get(tag))
@@ -522,8 +714,13 @@ def run_scenario(body: schemas.WhatIfScenarioRequest) -> schemas.WhatIfScenarioR
 
 
 def run_validation_filter(body: schemas.ValidationFilterRequest) -> schemas.ValidationFilterResponse:
+    """Default shortlist of filterable parameters: the same derived tag set
+    used for KPI tiles (see kpi.derive_kpi_tags's docstring for why there's
+    no clean upstream equivalent of the old hardcoded VALIDATION_TAGS list)."""
     df = _load_historian()
-    available = [t for t in constants.VALIDATION_TAGS if t in df.columns]
+    cfg = _load_config()
+    plugin = _load_plugin()
+    available = [t for t in kpi.derive_kpi_tags(cfg, plugin) if t in df.columns]
     filtered = df.copy()
     for tag in available:
         criterion = body.filters.get(tag)

@@ -282,3 +282,57 @@ export interface ValidationFilterResult {
   rows: Record<string, unknown>[]
   match_count: number
 }
+
+export interface SectionOrderRow {
+  'Sr.no': number | string
+  Section: string
+}
+
+export interface MvDvCvTagRow {
+  Name: string
+  GeneralizedDescription: string
+  Section: string
+  Type: string
+}
+
+export interface ConstraintsRow {
+  Parameter: string
+  'user input value': number | string
+  'Max vlaue'?: number | string
+  'Max value'?: number | string
+  UOM?: string
+  Remark?: string
+  'Linked Parameter'?: string
+  Action?: string
+}
+
+export interface UserInputsRow {
+  Parameter: string
+  Value?: number | string
+  'Lower Limit'?: number | string
+  'Upper Limit'?: number | string
+  Remark?: string
+}
+
+export interface ColumnOrderRow {
+  'Sr.no': number | string
+  'Preferred columns': string
+}
+
+export interface TargetSectionResult {
+  section_order: string[]
+  target_section: string | null
+  active_scope: string[]
+  excluded_sections: string[]
+}
+
+export interface CorrelationMatrixResult {
+  columns: string[]
+  matrix: (number | null)[][]
+  n_rows: number
+}
+
+export interface AccuracySummaryResult {
+  rows: Record<string, unknown>[]
+  available: boolean
+}

@@ -1,12 +1,20 @@
 import { apiClient } from './client'
 import type {
+  AccuracySummaryResult,
+  ColumnOrderRow,
+  ConstraintsRow,
+  CorrelationMatrixResult,
   DetectedCounts,
   GenerateMappingResult,
   ModelDetailsRow,
   ModelMappingResult,
+  MvDvCvTagRow,
   PiMappingRow,
+  SectionOrderRow,
   TagOptionsResult,
+  TargetSectionResult,
   TrainingDataUploadResult,
+  UserInputsRow,
   ValidationFilterCriterion,
   ValidationFilterResult,
   WhatIfConfigStatus,
@@ -101,13 +109,108 @@ export async function trainModels(): Promise<string> {
   return data.job_id
 }
 
+export async function getAccuracySummary(): Promise<AccuracySummaryResult> {
+  const { data } = await apiClient.get<AccuracySummaryResult>('/what-if/models/accuracy-summary')
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// New config sheets: Section Order, MV/DV/CV taglist, Constraints, User
+// Inputs, Column Order, Target Section — same stateless get/commit pattern
+// as PI mapping / model mapping above.
+// ---------------------------------------------------------------------------
+
+export async function getSectionOrder(): Promise<SectionOrderRow[]> {
+  const { data } = await apiClient.get<{ rows: SectionOrderRow[] }>('/what-if/config/section-order')
+  return data.rows
+}
+
+export async function commitSectionOrder(rows: SectionOrderRow[]): Promise<SectionOrderRow[]> {
+  const { data } = await apiClient.put<{ rows: SectionOrderRow[] }>('/what-if/config/section-order', { rows })
+  return data.rows
+}
+
+export async function getMvDvCvTaglist(): Promise<MvDvCvTagRow[]> {
+  const { data } = await apiClient.get<{ rows: MvDvCvTagRow[] }>('/what-if/config/mv-dv-cv-taglist')
+  return data.rows
+}
+
+export async function commitMvDvCvTaglist(rows: MvDvCvTagRow[]): Promise<MvDvCvTagRow[]> {
+  const { data } = await apiClient.put<{ rows: MvDvCvTagRow[] }>('/what-if/config/mv-dv-cv-taglist', { rows })
+  return data.rows
+}
+
+export async function getConstraints(): Promise<ConstraintsRow[]> {
+  const { data } = await apiClient.get<{ rows: ConstraintsRow[] }>('/what-if/config/constraints')
+  return data.rows
+}
+
+export async function commitConstraints(rows: ConstraintsRow[]): Promise<ConstraintsRow[]> {
+  const { data } = await apiClient.put<{ rows: ConstraintsRow[] }>('/what-if/config/constraints', { rows })
+  return data.rows
+}
+
+export async function getUserInputs(): Promise<UserInputsRow[]> {
+  const { data } = await apiClient.get<{ rows: UserInputsRow[] }>('/what-if/config/user-inputs')
+  return data.rows
+}
+
+export async function commitUserInputs(rows: UserInputsRow[]): Promise<UserInputsRow[]> {
+  const { data } = await apiClient.put<{ rows: UserInputsRow[] }>('/what-if/config/user-inputs', { rows })
+  return data.rows
+}
+
+export async function getColumnOrder(): Promise<ColumnOrderRow[]> {
+  const { data } = await apiClient.get<{ rows: ColumnOrderRow[] }>('/what-if/config/column-order')
+  return data.rows
+}
+
+export async function commitColumnOrder(rows: ColumnOrderRow[]): Promise<ColumnOrderRow[]> {
+  const { data } = await apiClient.put<{ rows: ColumnOrderRow[] }>('/what-if/config/column-order', { rows })
+  return data.rows
+}
+
+export async function getTargetSection(): Promise<TargetSectionResult> {
+  const { data } = await apiClient.get<TargetSectionResult>('/what-if/config/target-section')
+  return data
+}
+
+export async function setTargetSection(targetSection: string | null): Promise<TargetSectionResult> {
+  const { data } = await apiClient.put<TargetSectionResult>('/what-if/config/target-section', {
+    target_section: targetSection,
+  })
+  return data
+}
+
+export interface SaveConfigRequest {
+  pi_mapping_rows: PiMappingRow[]
+  model_details_rows: ModelDetailsRow[]
+  constraints_rows: ConstraintsRow[]
+  user_inputs_rows: UserInputsRow[]
+  display_order_rows: ColumnOrderRow[]
+  section_order_rows: SectionOrderRow[]
+  mvdvcv_rows: MvDvCvTagRow[]
+  target_section: string | null
+}
+
+export async function saveConfig(body: SaveConfigRequest): Promise<WhatIfConfigStatus> {
+  const { data } = await apiClient.post<WhatIfConfigStatus>('/what-if/config/save', body)
+  return data
+}
+
+export async function getCorrelationMatrix(): Promise<CorrelationMatrixResult> {
+  const { data } = await apiClient.get<CorrelationMatrixResult>('/what-if/config/correlation-matrix')
+  return data
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 
-export async function getTagOptions(generatedTags: string[]): Promise<TagOptionsResult> {
+export async function getTagOptions(generatedTags: string[], targetSection?: string | null): Promise<TagOptionsResult> {
   const { data } = await apiClient.post<TagOptionsResult>('/what-if/dashboard/tag-options', {
     generated_tags: generatedTags,
+    target_section: targetSection ?? null,
   })
   return data
 }
@@ -135,6 +238,7 @@ export interface RunScenarioRequest {
   timestamp: string
   overrides: { parameter: string; value: number }[]
   write_actual_vs_estimated_xlsx?: boolean
+  target_section?: string | null
 }
 
 export async function runScenario(body: RunScenarioRequest): Promise<WhatIfScenarioResult> {
@@ -144,8 +248,12 @@ export async function runScenario(body: RunScenarioRequest): Promise<WhatIfScena
 
 export async function runValidationFilter(
   filters: Record<string, ValidationFilterCriterion>,
+  targetSection?: string | null,
 ): Promise<ValidationFilterResult> {
-  const { data } = await apiClient.post<ValidationFilterResult>('/what-if/dashboard/validation-filter', { filters })
+  const { data } = await apiClient.post<ValidationFilterResult>('/what-if/dashboard/validation-filter', {
+    filters,
+    target_section: targetSection ?? null,
+  })
   return data
 }
 

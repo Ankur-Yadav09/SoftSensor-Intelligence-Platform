@@ -49,6 +49,12 @@ class ModelMappingResponse(BaseModel):
 class ConfigExportRequest(BaseModel):
     pi_mapping_rows: List[Dict[str, Any]]
     model_details_rows: List[Dict[str, Any]]
+    constraints_rows: List[Dict[str, Any]] = []
+    user_inputs_rows: List[Dict[str, Any]] = []
+    display_order_rows: List[Dict[str, Any]] = []
+    section_order_rows: List[Dict[str, Any]] = []
+    mvdvcv_rows: List[Dict[str, Any]] = []
+    target_section: Optional[str] = None
     format: str = "xlsx"  # "xlsx" | "csv"
 
 
@@ -86,11 +92,48 @@ class TrainModelsResult(BaseModel):
     raw_sim_present: bool
 
 
+class TargetSectionResponse(BaseModel):
+    section_order: List[str]
+    target_section: Optional[str] = None
+    active_scope: List[str]  # upstream sections + target, in process-flow order
+    excluded_sections: List[str]  # downstream sections hidden by the current scope
+
+
+class TargetSectionRequest(BaseModel):
+    target_section: Optional[str] = None
+
+
+class ConfigSaveRequest(BaseModel):
+    """All 8 sheets in one call — the config workbook's single-shot
+    persistence endpoint (config/save), as opposed to the download-only
+    config/export."""
+    pi_mapping_rows: List[Dict[str, Any]] = []
+    model_details_rows: List[Dict[str, Any]] = []
+    constraints_rows: List[Dict[str, Any]] = []
+    user_inputs_rows: List[Dict[str, Any]] = []
+    display_order_rows: List[Dict[str, Any]] = []
+    section_order_rows: List[Dict[str, Any]] = []
+    mvdvcv_rows: List[Dict[str, Any]] = []
+    target_section: Optional[str] = None
+
+
+class CorrelationMatrixResponse(BaseModel):
+    columns: List[str]
+    matrix: List[List[Optional[float]]]
+    n_rows: int
+
+
+class AccuracySummaryResponse(BaseModel):
+    rows: List[Dict[str, Any]]
+    available: bool
+
+
 class TagOptionsRequest(BaseModel):
     # Wizard-generated tags, held client-side since there's no server session
     # in this design (see plan Section 6: config/mapping endpoints all take
     # full state per-request rather than relying on session state).
     generated_tags: List[str] = []
+    target_section: Optional[str] = None
 
 
 class TagOptionsResponse(BaseModel):
@@ -121,6 +164,7 @@ class WhatIfScenarioRequest(BaseModel):
     timestamp: str
     overrides: List[OverrideInput] = []
     write_actual_vs_estimated_xlsx: bool = False
+    target_section: Optional[str] = None
 
 
 class WhatIfScenarioRow(BaseModel):
@@ -152,6 +196,7 @@ class ValidationFilterCriterion(BaseModel):
 
 class ValidationFilterRequest(BaseModel):
     filters: Dict[str, ValidationFilterCriterion]
+    target_section: Optional[str] = None
 
 
 class ValidationFilterResponse(BaseModel):

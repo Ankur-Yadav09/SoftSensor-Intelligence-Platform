@@ -1,40 +1,29 @@
 """
 src/whatif/model_status.py
 ============================
-Phase-1 replacement for the Streamlit app's `models_trained` session flag
-(which used to be set by running the training script): a pure file-existence
-check over the 15 Kalman-model tags' 3 artifacts each
-(kalman_filter_model_{tag}.pkl, scaler_X_{tag}.pkl, scaler_y_{tag}.pkl).
+A pure file-existence check over the required Kalman-model tags' 3 artifacts
+each (kalman_filter_model_{tag}.pkl, scaler_X_{tag}.pkl, scaler_y_{tag}.pkl)
+under Results/Model/.
 
-No retraining is implemented in Phase 1 — this module only reports whether
-the artifacts required by src/whatif/engine.py are already present under
-Results/Model/.
+The required tag list used to be a hardcoded 15-entry constant, ported
+verbatim from the original single-plant Streamlit dashboard. That list
+predates the generalized config schema and had drifted out of sync with it
+(missing CHG_GAS_FLOW_TO_DRYER, which the current Config_file.xlsx does mark
+as a Data model parameter and does have trained artifacts for). It's now
+derived from the live "Model details" sheet instead: every predicted
+parameter whose model type is data-driven (see
+src/whatif/config_io.non_data_model_parameters, which the rewritten
+src/whatif/engine.py also uses to decide what to Kalman-predict vs. hand to
+the plant plug-in) is required.
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
 
-# The 15 tags src/whatif/engine.py actually invokes predict_and_update_with_kalman
-# for (2 of the 18 "Model details" sheet rows, Overall_COT and
-# CHG_GAS_FLOW_TO_DRYER, are present in the config but never invoked).
-REQUIRED_KALMAN_TAGS = [
-    "Quench_tower_overhead_temp",
-    "CGC_STAGE_1_SUCTION_PRESSURE",
-    "CGC_5TH_STG_DISCH_PRES",
-    "CGC_Power_KW",
-    "CGC_Turbine_HP_Steam_flow",
-    "PRC_1ST_STAGE_Suction_FLOW",
-    "PRC_1ST_STAGE_Suction_PRESSURE",
-    "PRC_2nd_stage_drum_Overhead_Flow",
-    "ERC_2nd_stage_drum_Overhead_Flow",
-    "ERC_turbine_steam_flow",
-    "ERC_power",
-    "ERC_1ST_STAGE_Suction_FLOW",
-    "ERC_1ST_STAGE_Suction_PRESSURE",
-    "TOTAL_ETHYLENE_LOSS_to_fuel",
-    "Ethylene_product_flow",
-]
+import pandas as pd
+
+from src.whatif import config_io
 
 
 @dataclass
@@ -53,8 +42,19 @@ def _tag_artifacts(model_dir: str, tag: str) -> list[str]:
     ]
 
 
-def check_models_trained(model_dir: str, required_tags: list[str] | None = None) -> ModelStatus:
-    tags = required_tags if required_tags is not None else REQUIRED_KALMAN_TAGS
+def required_kalman_tags(model_details_df: pd.DataFrame) -> list[str]:
+    """Every 'Predicted parameter' whose model type is data-driven (blank
+    defaults to data-driven) — i.e. every parameter src/whatif/engine.py will
+    try to Kalman-predict rather than hand to the plant plug-in."""
+    if model_details_df is None or model_details_df.empty or "Predicted parameter" not in model_details_df.columns:
+        return []
+    non_data = config_io.non_data_model_parameters(model_details_df)
+    tags = model_details_df["Predicted parameter"].dropna().astype(str).str.strip()
+    return [t for t in tags.unique() if t and t not in non_data]
+
+
+def check_models_trained(model_dir: str, required_tags: list[str]) -> ModelStatus:
+    tags = required_tags
     tags_ok: list[str] = []
     tags_missing: list[str] = []
     pkl_count = 0

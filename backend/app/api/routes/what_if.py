@@ -64,6 +64,81 @@ def config_export(body: schemas.ConfigExportRequest) -> Response:
     )
 
 
+@router.get("/config/section-order", response_model=schemas.RowsResponse)
+def config_section_order() -> schemas.RowsResponse:
+    return what_if_service.get_section_order()
+
+
+@router.put("/config/section-order", response_model=schemas.RowsResponse)
+def config_commit_section_order(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return what_if_service.commit_section_order(body)
+
+
+@router.get("/config/mv-dv-cv-taglist", response_model=schemas.RowsResponse)
+def config_mvdvcv_taglist() -> schemas.RowsResponse:
+    return what_if_service.get_mvdvcv_taglist()
+
+
+@router.put("/config/mv-dv-cv-taglist", response_model=schemas.RowsResponse)
+def config_commit_mvdvcv_taglist(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return what_if_service.commit_mvdvcv_taglist(body)
+
+
+@router.get("/config/constraints", response_model=schemas.RowsResponse)
+def config_constraints() -> schemas.RowsResponse:
+    return what_if_service.get_constraints()
+
+
+@router.put("/config/constraints", response_model=schemas.RowsResponse)
+def config_commit_constraints(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return what_if_service.commit_constraints(body)
+
+
+@router.get("/config/user-inputs", response_model=schemas.RowsResponse)
+def config_user_inputs() -> schemas.RowsResponse:
+    return what_if_service.get_user_inputs()
+
+
+@router.put("/config/user-inputs", response_model=schemas.RowsResponse)
+def config_commit_user_inputs(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return what_if_service.commit_user_inputs(body)
+
+
+@router.get("/config/column-order", response_model=schemas.RowsResponse)
+def config_column_order() -> schemas.RowsResponse:
+    return what_if_service.get_column_order()
+
+
+@router.put("/config/column-order", response_model=schemas.RowsResponse)
+def config_commit_column_order(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    return what_if_service.commit_column_order(body)
+
+
+@router.get("/config/target-section", response_model=schemas.TargetSectionResponse)
+def config_target_section() -> schemas.TargetSectionResponse:
+    return what_if_service.get_target_section()
+
+
+@router.put("/config/target-section", response_model=schemas.TargetSectionResponse)
+def config_set_target_section(body: schemas.TargetSectionRequest) -> schemas.TargetSectionResponse:
+    return what_if_service.set_target_section(body)
+
+
+@router.post("/config/save", response_model=schemas.ConfigStatusResponse)
+def config_save(body: schemas.ConfigSaveRequest) -> schemas.ConfigStatusResponse:
+    return what_if_service.save_config(body)
+
+
+@router.get("/config/correlation-matrix", response_model=schemas.CorrelationMatrixResponse)
+def config_correlation_matrix() -> schemas.CorrelationMatrixResponse:
+    return what_if_service.get_correlation_matrix()
+
+
+@router.get("/models/accuracy-summary", response_model=schemas.AccuracySummaryResponse)
+def models_accuracy_summary() -> schemas.AccuracySummaryResponse:
+    return what_if_service.get_accuracy_summary()
+
+
 @router.post("/training-data/upload", response_model=schemas.TrainingDataUploadResponse)
 async def training_data_upload(file: UploadFile) -> schemas.TrainingDataUploadResponse:
     return await what_if_service.upload_training_data(file)

@@ -5,6 +5,7 @@ import { Callout } from '../../components/Callout'
 import { StatusCard } from '../../components/StatusCard'
 import { StepHeading } from '../../components/StepHeading'
 import { useJobPolling } from '../../hooks/useJobPolling'
+import { AccuracySummaryPanel } from './AccuracySummaryPanel'
 import type { WhatIfModelStatus, WhatIfTrainResult } from '../../api/types'
 
 interface ModelStatusPanelProps {
@@ -27,6 +28,7 @@ export function ModelStatusPanel({ status, isLoading, canProceed, onProceed }: M
   useEffect(() => {
     if (jobQuery.data?.done) {
       queryClient.invalidateQueries({ queryKey: ['whatif-models-status'] })
+      queryClient.invalidateQueries({ queryKey: ['whatif-accuracy-summary'] })
     }
   }, [jobQuery.data?.done, queryClient])
 
@@ -150,6 +152,12 @@ export function ModelStatusPanel({ status, isLoading, canProceed, onProceed }: M
               {trainResult.stderr_tail || '<no stderr>'}
             </pre>
           </details>
+        </div>
+      )}
+
+      {!isLoading && modelsReady && (
+        <div style={{ marginTop: '1.25rem' }}>
+          <AccuracySummaryPanel />
         </div>
       )}
     </div>

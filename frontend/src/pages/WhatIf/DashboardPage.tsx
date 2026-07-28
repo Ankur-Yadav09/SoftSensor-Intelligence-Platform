@@ -9,11 +9,12 @@ import { BaselineValuesPanel } from './BaselineValuesPanel'
 import { KpiCardsRow } from './KpiCardsRow'
 import { SimulationOverridesPanel } from './SimulationOverridesPanel'
 import { TagSourcePanel } from './TagSourcePanel'
+import { TargetSectionSelector } from './TargetSectionSelector'
 import { TimestampSelector } from './TimestampSelector'
 import { ValidationFiltersPanel } from './ValidationFiltersPanel'
 
 export function DashboardPage() {
-  const { generatedTags } = useActiveWhatIf()
+  const { generatedTags, targetSection, setTargetSection } = useActiveWhatIf()
 
   const configStatusQuery = useQuery({ queryKey: ['whatif-config-status'], queryFn: getConfigStatus })
   const modelStatusQuery = useQuery({ queryKey: ['whatif-models-status'], queryFn: getModelsStatus })
@@ -24,8 +25,8 @@ export function DashboardPage() {
     !!modelStatusQuery.data?.all_present
 
   const tagOptionsQuery = useQuery({
-    queryKey: ['whatif-tag-options', generatedTags],
-    queryFn: () => getTagOptions(generatedTags),
+    queryKey: ['whatif-tag-options', generatedTags, targetSection],
+    queryFn: () => getTagOptions(generatedTags, targetSection),
     enabled: gateReady,
   })
 
@@ -74,7 +75,7 @@ export function DashboardPage() {
   }
 
   function runCompute() {
-    scenarioMutation.mutate({ timestamp: selectedTimestamp, overrides: validOverrides })
+    scenarioMutation.mutate({ timestamp: selectedTimestamp, overrides: validOverrides, target_section: targetSection })
   }
 
   const nOverrides = validOverrides.length
@@ -82,6 +83,10 @@ export function DashboardPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       <h1>What-If Dashboard</h1>
+
+      <div className="card" style={{ padding: '1.5rem' }}>
+        <TargetSectionSelector value={targetSection} onChange={setTargetSection} />
+      </div>
 
       <div className="card" style={{ padding: '1.5rem' }}>
         <TagSourcePanel tagOptions={tagOptionsQuery.data} selectedTags={manualTags} onChange={setManualTags} />
@@ -131,7 +136,11 @@ export function DashboardPage() {
           <div className="card" style={{ padding: '1.5rem' }}>
             <ActualVsEstimatedTable timestamp={selectedTimestamp} rows={scenarioMutation.data.rows} />
           </div>
-          <ValidationFiltersPanel timestamp={selectedTimestamp} scenarioRows={scenarioMutation.data.rows} />
+          <ValidationFiltersPanel
+            timestamp={selectedTimestamp}
+            scenarioRows={scenarioMutation.data.rows}
+            targetSection={targetSection}
+          />
         </>
       )}
     </div>

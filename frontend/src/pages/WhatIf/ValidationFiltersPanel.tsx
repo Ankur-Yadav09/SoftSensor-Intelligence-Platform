@@ -7,16 +7,22 @@ import type { WhatIfScenarioRow } from '../../api/types'
 interface ValidationFiltersPanelProps {
   timestamp: string
   scenarioRows: WhatIfScenarioRow[]
+  targetSection?: string | null
 }
 
 // This is where Streamlit's st.sidebar "Validation Filters" panel lives in
 // the React app — placed directly above the historical validation table it
 // feeds, since the app's actual Sidebar is reserved for top-level nav.
-export function ValidationFiltersPanel({ timestamp, scenarioRows }: ValidationFiltersPanelProps) {
+export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection }: ValidationFiltersPanelProps) {
   const [range, setRange] = useState<Record<string, { min: number; max: number }>>({})
 
-  const allQuery = useQuery({ queryKey: ['whatif-validation-all'], queryFn: () => runValidationFilter({}) })
-  const filterMutation = useMutation({ mutationFn: runValidationFilter })
+  const allQuery = useQuery({
+    queryKey: ['whatif-validation-all', targetSection],
+    queryFn: () => runValidationFilter({}, targetSection),
+  })
+  const filterMutation = useMutation({
+    mutationFn: (filters: Record<string, { min: number; max: number }>) => runValidationFilter(filters, targetSection),
+  })
 
   useEffect(() => {
     if (allQuery.data && Object.keys(range).length === 0 && allQuery.data.rows.length > 0) {

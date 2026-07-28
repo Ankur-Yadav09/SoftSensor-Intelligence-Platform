@@ -1,4 +1,3 @@
-import { KPI_TAGS } from './whatIfConstants'
 import type { WhatIfKpi } from '../../api/types'
 
 function fmtNum(val: number, forceSign = false): string {
@@ -33,11 +32,14 @@ function WhatIfKpiCard({ kpi }: { kpi: WhatIfKpi }) {
 }
 
 export function KpiCardsRow({ kpis }: { kpis: WhatIfKpi[] }) {
-  const active = KPI_TAGS.map((tag) => kpis.find((k) => k.tag === tag)).filter((k): k is WhatIfKpi => !!k)
-  if (active.length === 0) return null
+  // The backend derives this set from the live config (predicted parameters
+  // + constrained parameters + the plant plug-in's KPI_PARAMETERS) — see
+  // src/whatif/kpi.py::derive_kpi_tags. No client-side tag whitelist here;
+  // whatever the backend returns, in the order it returns it, is shown.
+  if (kpis.length === 0) return null
 
   const chunks: WhatIfKpi[][] = []
-  for (let i = 0; i < active.length; i += 4) chunks.push(active.slice(i, i + 4))
+  for (let i = 0; i < kpis.length; i += 4) chunks.push(kpis.slice(i, i + 4))
 
   return (
     <div>
