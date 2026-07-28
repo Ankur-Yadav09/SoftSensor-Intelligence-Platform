@@ -1,14 +1,31 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
+import { extractErrorMessage } from '../../api/errors'
 import { uploadConfig } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
-import { StepHeading } from '../../components/StepHeading'
 import type { WhatIfConfigStatus } from '../../api/types'
 
 interface ConfigSourceStatusProps {
   status: WhatIfConfigStatus | undefined
   onUploaded: () => void
 }
+
+// Every query key a full Config_file.xlsx upload can affect — all 8 sheets
+// are now surfaced as their own live tabs across System/Model/What-If
+// Config, so an upload has to refresh all of them, not just PI/Model mapping.
+const CONFIG_QUERY_KEYS = [
+  'whatif-config-status',
+  'whatif-pi-mapping',
+  'whatif-model-mapping',
+  'whatif-detected-counts',
+  'whatif-section-order',
+  'whatif-mvdvcv',
+  'whatif-constraints',
+  'whatif-user-inputs',
+  'whatif-column-order',
+  'whatif-target-section',
+  'whatif-models-status',
+]
 
 export function ConfigSourceStatus({ status, onUploaded }: ConfigSourceStatusProps) {
   const queryClient = useQueryClient()
@@ -18,10 +35,7 @@ export function ConfigSourceStatus({ status, onUploaded }: ConfigSourceStatusPro
   const uploadMutation = useMutation({
     mutationFn: uploadConfig,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['whatif-config-status'] })
-      queryClient.invalidateQueries({ queryKey: ['whatif-pi-mapping'] })
-      queryClient.invalidateQueries({ queryKey: ['whatif-model-mapping'] })
-      queryClient.invalidateQueries({ queryKey: ['whatif-detected-counts'] })
+      for (const key of CONFIG_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: [key] })
       onUploaded()
     },
   })
@@ -31,7 +45,7 @@ export function ConfigSourceStatus({ status, onUploaded }: ConfigSourceStatusPro
 
   return (
     <div className="card" style={{ padding: '1.5rem' }}>
-      <StepHeading step={1} title="Configuration Source" />
+      <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>🗂️ Configuration Source</h3>
 
       {piOk || modelOk ? (
         <Callout variant="success">
@@ -71,8 +85,7 @@ export function ConfigSourceStatus({ status, onUploaded }: ConfigSourceStatusPro
         {uploadMutation.isError && (
           <div style={{ marginTop: '0.5rem' }}>
             <Callout variant="error">
-              {(uploadMutation.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-                'Could not parse the workbook.'}
+              {extractErrorMessage(uploadMutation.error, 'Could not parse the workbook.')}
             </Callout>
           </div>
         )}

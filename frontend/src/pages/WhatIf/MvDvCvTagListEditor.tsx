@@ -2,14 +2,21 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { commitMvDvCvTaglist, getMvDvCvTaglist } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
+import { inSectionScope } from './caseSetupHelpers'
 import type { MvDvCvTagRow } from '../../api/types'
 
 const FIELDS: (keyof MvDvCvTagRow)[] = ['Name', 'GeneralizedDescription', 'Section', 'Type']
 
+interface MvDvCvTagListEditorProps {
+  /** Restricts which rows are shown/editable to those in-scope. Omit for
+   * the unscoped, full-list view used outside the wizard. */
+  allowed?: Set<string>
+}
+
 // Editor for the optional MV/DV/CV Tag List — a prioritized, plant-engineer
 // curated input-tag source. When present, Model Mapping's input dropdowns
 // list these tags before the remaining PI tags.
-export function MvDvCvTagListEditor() {
+export function MvDvCvTagListEditor({ allowed }: MvDvCvTagListEditorProps) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-mvdvcv'], queryFn: getMvDvCvTaglist })
   const [rows, setRows] = useState<MvDvCvTagRow[]>([])
@@ -20,10 +27,18 @@ export function MvDvCvTagListEditor() {
 
   const commitMutation = useMutation({
     mutationFn: commitMvDvCvTaglist,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['whatif-mvdvcv'] }),
+    onSuccess: (result) => {
+      setRows(result)
+      queryClient.setQueryData(['whatif-mvdvcv'], result)
+    },
   })
 
   if (query.isLoading) return <p className="caption">Loading MV/DV/CV tag list…</p>
+
+  const visibleIndices = rows
+    .map((_, i) => i)
+    .filter((i) => !allowed || inSectionScope(rows[i].Section, allowed, rows[i].GeneralizedDescription))
+  const hiddenCount = rows.length - visibleIndices.length
 
   function updateCell(index: number, field: keyof MvDvCvTagRow, value: string) {
     const next = [...rows]
@@ -56,13 +71,13 @@ export function MvDvCvTagListEditor() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, i) => (
+            {visibleIndices.map((i) => (
               <tr key={i}>
                 {FIELDS.map((f) => (
                   <td key={f}>
                     <input
                       type="text"
-                      value={row[f] ?? ''}
+                      value={rows[i][f] ?? ''}
                       onChange={(e) => updateCell(i, f, e.target.value)}
                       style={{ width: 180 }}
                     />
@@ -78,6 +93,11 @@ export function MvDvCvTagListEditor() {
           </tbody>
         </table>
       </div>
+      {hiddenCount > 0 && (
+        <p className="caption" style={{ marginTop: '0.5rem' }}>
+          {hiddenCount} row(s) belonging to other sections are hidden here (left untouched).
+        </p>
+      )}
       <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
         <button className="chip" onClick={addRow}>
           + Add Tag

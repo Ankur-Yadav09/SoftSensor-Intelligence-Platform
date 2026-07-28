@@ -8,9 +8,9 @@ import { PredictPage } from './pages/Predict/PredictPage'
 import { PreprocessPage } from './pages/Preprocess/PreprocessPage'
 import { TrainPage } from './pages/Train/TrainPage'
 import { UploadPage } from './pages/Upload/UploadPage'
-import { CaseSetupPage } from './pages/WhatIf/CaseSetupPage'
 import { DashboardPage } from './pages/WhatIf/DashboardPage'
 import { WhatIfOverviewPage } from './pages/WhatIf/OverviewPage'
+import { WhatIfSetupPage } from './pages/WhatIf/WhatIfSetupPage'
 
 export const router = createBrowserRouter([
   {
@@ -25,7 +25,7 @@ export const router = createBrowserRouter([
       { path: '/predict', element: <PredictPage /> },
       { path: '/experiment-history', element: <ExperimentHistoryPage /> },
       { path: '/what-if/overview', element: <WhatIfOverviewPage /> },
-      { path: '/what-if/case-setup', element: <CaseSetupPage /> },
+      { path: '/what-if/case-setup', element: <WhatIfSetupPage /> },
       { path: '/what-if/dashboard', element: <DashboardPage /> },
     ],
   },

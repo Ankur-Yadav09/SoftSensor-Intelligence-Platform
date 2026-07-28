@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
 import { listDatasets, uploadDataset } from '../../api/datasets'
+import { extractErrorMessage } from '../../api/errors'
 import { Callout } from '../../components/Callout'
 import type { DatasetSummary } from '../../api/types'
 
@@ -72,10 +73,9 @@ export function UploadNewDatasetWizard({ onUploaded }: UploadNewDatasetWizardPro
     },
   })
 
-  const uploadError = (() => {
-    const err = uploadMutation.error as { response?: { data?: { detail?: string } } } | undefined
-    return err?.response?.data?.detail ?? (uploadMutation.isError ? 'Upload failed. Please try again.' : null)
-  })()
+  const uploadError = uploadMutation.isError
+    ? extractErrorMessage(uploadMutation.error, 'Upload failed. Please try again.')
+    : null
 
   function validateAndSetFile(f: File) {
     setFileError(null)

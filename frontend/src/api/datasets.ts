@@ -19,8 +19,11 @@ export async function uploadDataset(file: File, options: UploadDatasetOptions = 
   if (options.datasetName) form.append('dataset_name', options.datasetName)
   if (options.plant) form.append('plant', options.plant)
   if (options.unit) form.append('unit', options.unit)
+  // No explicit Content-Type for a FormData body — axios/the browser must
+  // generate it (with the required multipart boundary) itself; overriding it
+  // to a bare 'multipart/form-data' with no boundary produces a request the
+  // server's multipart parser can't split into fields.
   const { data } = await apiClient.post<DatasetSummary>('/datasets/upload', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
     onUploadProgress: (e) => {
       if (options.onProgress && e.total) {
         options.onProgress(Math.round((e.loaded / e.total) * 100))

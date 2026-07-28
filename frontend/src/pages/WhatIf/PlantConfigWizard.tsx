@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { StepHeading } from '../../components/StepHeading'
 import type { DetectedCounts } from '../../api/types'
 
 interface PlantConfigWizardProps {
@@ -44,8 +43,8 @@ export function PlantConfigWizard({ detectedCounts, onGenerate, generating, onRe
 
   return (
     <div>
-      <StepHeading step={2} title="Plant Configuration Wizard" />
-      <p className="caption" style={{ marginTop: '-0.6rem' }}>
+      <div style={{ fontWeight: 700, marginBottom: '0.4rem' }}>🧙 Plant Configuration Wizard</div>
+      <p className="caption" style={{ marginTop: 0 }}>
         Answer the plant line-up questions — matching tags are automatically clubbed per section (CGC / PRC / ERC /
         Furnace).
       </p>

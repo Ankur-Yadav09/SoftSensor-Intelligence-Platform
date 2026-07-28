@@ -4,9 +4,15 @@ import { commitColumnOrder, getColumnOrder } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import type { ColumnOrderRow } from '../../api/types'
 
+interface ColumnOrderEditorProps {
+  /** "Preferred columns" dropdown options (section-scoped tags). Falls back
+   * to a free-text input when omitted. */
+  tagOptions?: string[]
+}
+
 // Editor for "display_column_order": the preferred column order for the
 // Actual-vs-Estimated table and CSV exports.
-export function ColumnOrderEditor() {
+export function ColumnOrderEditor({ tagOptions }: ColumnOrderEditorProps) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-column-order'], queryFn: getColumnOrder })
   const [rows, setRows] = useState<ColumnOrderRow[]>([])
@@ -17,7 +23,10 @@ export function ColumnOrderEditor() {
 
   const commitMutation = useMutation({
     mutationFn: commitColumnOrder,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['whatif-column-order'] }),
+    onSuccess: (result) => {
+      setRows(result)
+      queryClient.setQueryData(['whatif-column-order'], result)
+    },
   })
 
   if (query.isLoading) return <p className="caption">Loading column order…</p>
@@ -59,12 +68,27 @@ export function ColumnOrderEditor() {
                 />
               </td>
               <td>
-                <input
-                  type="text"
-                  value={row['Preferred columns']}
-                  onChange={(e) => updateCell(i, 'Preferred columns', e.target.value)}
-                  style={{ width: 260 }}
-                />
+                {tagOptions ? (
+                  <select
+                    value={row['Preferred columns']}
+                    onChange={(e) => updateCell(i, 'Preferred columns', e.target.value)}
+                    style={{ width: 260 }}
+                  >
+                    <option value="">—</option>
+                    {tagOptions.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={row['Preferred columns']}
+                    onChange={(e) => updateCell(i, 'Preferred columns', e.target.value)}
+                    style={{ width: 260 }}
+                  />
+                )}
               </td>
               <td>
                 <button className="chip" onClick={() => removeRow(i)}>

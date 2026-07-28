@@ -19,15 +19,17 @@ export function SectionOrderEditor() {
 
   const commitMutation = useMutation({
     mutationFn: commitSectionOrder,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['whatif-section-order'] })
+    onSuccess: (result) => {
+      setRows(result)
+      queryClient.setQueryData(['whatif-section-order'], result)
       queryClient.invalidateQueries({ queryKey: ['whatif-target-section'] })
     },
   })
 
   if (query.isLoading) return <p className="caption">Loading process execution order…</p>
 
-  const distinctSections = new Set(rows.map((r) => r.Section).filter(Boolean))
+  const orderedSections = rows.map((r) => r.Section.trim()).filter(Boolean)
+  const distinctSections = new Set(orderedSections.map((s) => s.toLowerCase()))
 
   function updateCell(index: number, field: keyof SectionOrderRow, value: string) {
     const next = [...rows]
@@ -85,6 +87,17 @@ export function SectionOrderEditor() {
           ))}
         </tbody>
       </table>
+      {orderedSections.length > 0 && (
+        <p className="caption" style={{ marginTop: '0.75rem' }}>
+          Order:{' '}
+          {orderedSections.map((s, i) => (
+            <span key={i}>
+              {i > 0 && ' → '}
+              <code>{s}</code>
+            </span>
+          ))}
+        </p>
+      )}
       <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
         <button className="chip" onClick={addRow}>
           + Add Section

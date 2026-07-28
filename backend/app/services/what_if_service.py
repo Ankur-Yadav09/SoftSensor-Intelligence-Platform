@@ -106,17 +106,32 @@ def _atomic_write_bytes(path: str, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        # 8 attempts / ~10s total (was 5 / ~3s) — the 85MB training workbook
-        # can stay locked by an active OneDrive sync noticeably longer than a
-        # small config file, so give it a realistic window to clear.
+        # 15 attempts / ~28s total (was 8 / ~10s) — confirmed on this exact
+        # machine that os.replace() can still fail past the old ~10s budget
+        # even though the file tests as unlocked moments before and after,
+        # with Windows Defender real-time protection active (AntivirusEnabled
+        # / RealTimeProtectionEnabled both True) and this repo NOT under
+        # OneDrive sync (verified: OneDrive's only registered sync root is
+        # ~/OneDrive, unrelated to this path) — i.e. the actual lock holder
+        # here is Defender's on-write scan of the freshly-written temp file,
+        # not OneDrive. A real observed failure, not hypothetical, but a
+        # RETRY LOOP CANNOT FIX THIS PERMANENTLY: it only widens the window a
+        # transient AV/Excel/OneDrive lock has to clear. The durable fix is a
+        # Windows Defender exclusion for this repo's Data/Results folders
+        # (Windows Security > Virus & threat protection > Manage settings >
+        # Exclusions, or, as Administrator: Add-MpPreference -ExclusionPath
+        # "<repo path>").
+        # Backoff is capped at 2.4s/attempt rather than growing unbounded, so
+        # this doesn't turn into a multi-minute hang if the lock is actually
+        # permanent (e.g. the file genuinely open in Excel).
         last_error: OSError | None = None
-        for attempt in range(8):
+        for attempt in range(15):
             try:
                 os.replace(tmp_path, path)
                 return
             except OSError as e:
                 last_error = e
-                time.sleep(0.3 * (attempt + 1))
+                time.sleep(0.3 * min(attempt + 1, 8))
         raise last_error
     except Exception:
         if os.path.exists(tmp_path):

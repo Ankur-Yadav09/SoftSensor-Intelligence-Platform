@@ -4,14 +4,20 @@ import { commitConstraints, getConstraints } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import type { ConstraintsRow } from '../../api/types'
 
-const TEXT_FIELDS: (keyof ConstraintsRow)[] = ['Parameter', 'user input value', 'Max vlaue', 'UOM', 'Remark']
+const VALUE_FIELDS: (keyof ConstraintsRow)[] = ['user input value', 'Max vlaue', 'UOM', 'Remark']
 const ACTIONS = ['', 'bump_linked_to_max', 'abort_if_exceeds']
+
+interface ConstraintsEditorProps {
+  /** Parameter/Linked Parameter dropdown options (section-scoped tags).
+   * Falls back to free-text inputs when omitted. */
+  tagOptions?: string[]
+}
 
 // Editor for the Constraints sheet — the generic rule engine that replaced
 // the old hardcoded "bump turbine speed to max" / "abort if pressure
 // exceeds" logic (see src/whatif/engine.py's apply_linked_constraints_for_inputs
 // and check_abort_constraints). Every rule here is expressed as data, not code.
-export function ConstraintsEditor() {
+export function ConstraintsEditor({ tagOptions }: ConstraintsEditorProps) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-constraints'], queryFn: getConstraints })
   const [rows, setRows] = useState<ConstraintsRow[]>([])
@@ -22,10 +28,17 @@ export function ConstraintsEditor() {
 
   const commitMutation = useMutation({
     mutationFn: commitConstraints,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['whatif-constraints'] }),
+    onSuccess: (result) => {
+      setRows(result)
+      queryClient.setQueryData(['whatif-constraints'], result)
+    },
   })
 
   if (query.isLoading) return <p className="caption">Loading constraints…</p>
+
+  const paramChoices = tagOptions
+    ? Array.from(new Set([...rows.map((r) => r.Parameter).filter(Boolean), ...tagOptions])).sort()
+    : null
 
   function updateField(index: number, field: keyof ConstraintsRow, value: string) {
     const next = [...rows]
@@ -41,6 +54,22 @@ export function ConstraintsEditor() {
     setRows(rows.filter((_, i) => i !== index))
   }
 
+  function ParamField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+    if (paramChoices) {
+      return (
+        <select value={value} onChange={(e) => onChange(e.target.value)} style={{ width: 180 }}>
+          <option value="">—</option>
+          {paramChoices.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    return <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={{ width: 180 }} />
+  }
+
   return (
     <div>
       <Callout variant="info">
@@ -53,7 +82,8 @@ export function ConstraintsEditor() {
         <table className="table-compact">
           <thead>
             <tr>
-              {TEXT_FIELDS.map((f) => (
+              <th>Parameter</th>
+              {VALUE_FIELDS.map((f) => (
                 <th key={f}>{f}</th>
               ))}
               <th>Linked Parameter</th>
@@ -64,22 +94,23 @@ export function ConstraintsEditor() {
           <tbody>
             {rows.map((row, i) => (
               <tr key={i}>
-                {TEXT_FIELDS.map((f) => (
+                <td>
+                  <ParamField value={row.Parameter} onChange={(v) => updateField(i, 'Parameter', v)} />
+                </td>
+                {VALUE_FIELDS.map((f) => (
                   <td key={f}>
                     <input
                       type="text"
                       value={row[f] ?? ''}
                       onChange={(e) => updateField(i, f, e.target.value)}
-                      style={{ width: f === 'Remark' ? 220 : 130 }}
+                      style={{ width: f === 'Remark' ? 220 : 110 }}
                     />
                   </td>
                 ))}
                 <td>
-                  <input
-                    type="text"
+                  <ParamField
                     value={row['Linked Parameter'] ?? ''}
-                    onChange={(e) => updateField(i, 'Linked Parameter', e.target.value)}
-                    style={{ width: 180 }}
+                    onChange={(v) => updateField(i, 'Linked Parameter', v)}
                   />
                 </td>
                 <td>

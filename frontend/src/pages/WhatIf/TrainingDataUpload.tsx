@@ -1,19 +1,27 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
+import { extractErrorMessage } from '../../api/errors'
 import { uploadTrainingData } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
-import { StepHeading } from '../../components/StepHeading'
 
+// Case Setup wizard Step 5: upload the training workbook ('PI data' /
+// 'Furnace data' sheets). Used only for (future) model retraining, not for
+// running scenarios.
 export function TrainingDataUpload() {
+  const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
-  const uploadMutation = useMutation({ mutationFn: uploadTrainingData })
+  const uploadMutation = useMutation({
+    mutationFn: uploadTrainingData,
+    onSuccess: (result) => {
+      if (result.saved) queryClient.invalidateQueries({ queryKey: ['whatif-models-status'] })
+    },
+  })
 
   return (
-    <div className="card" style={{ padding: '1.5rem' }}>
-      <StepHeading step={3} title="Step A — Upload Training Dataset" />
+    <div>
       <p className="caption">
         Upload <code>DMC_Screen_tags_data.xlsx</code> — a single workbook containing both the "PI data" and "Furnace
-        data" sheets. Used only for (future) model retraining, not for running scenarios.
+        data" sheets.
       </p>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.75rem' }}>
@@ -25,7 +33,7 @@ export function TrainingDataUpload() {
             if (file) uploadMutation.mutate(file)
           }}
         >
-          {uploadMutation.isPending ? 'Uploading…' : '💾 Save training dataset to Data folder'}
+          {uploadMutation.isPending ? 'Uploading…' : '💾 Save training dataset'}
         </button>
       </div>
 
@@ -45,8 +53,7 @@ export function TrainingDataUpload() {
       {uploadMutation.isError && (
         <div style={{ marginTop: '0.75rem' }}>
           <Callout variant="error">
-            {(uploadMutation.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-              'Failed to read/save the training workbook.'}
+            {extractErrorMessage(uploadMutation.error, 'Failed to read/save the training workbook.')}
           </Callout>
         </div>
       )}

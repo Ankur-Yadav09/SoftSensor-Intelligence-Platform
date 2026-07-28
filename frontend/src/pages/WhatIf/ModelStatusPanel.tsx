@@ -11,7 +11,7 @@ import type { WhatIfModelStatus, WhatIfTrainResult } from '../../api/types'
 interface ModelStatusPanelProps {
   status: WhatIfModelStatus | undefined
   isLoading: boolean
-  /** Same gate CaseSetupPage always used to unlock the What-If Dashboard — unchanged, only relocated here. */
+  /** Same gate used elsewhere to unlock the What-If Dashboard/Analysis page — unchanged, only relocated here. */
   canProceed: boolean
   onProceed: () => void
 }

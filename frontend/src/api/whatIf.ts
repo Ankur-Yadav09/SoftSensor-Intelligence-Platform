@@ -39,9 +39,13 @@ export async function getPiMapping(): Promise<PiMappingRow[]> {
 export async function uploadConfig(file: File): Promise<WhatIfConfigStatus> {
   const form = new FormData()
   form.append('file', file)
-  const { data } = await apiClient.post<WhatIfConfigStatus>('/what-if/config/upload', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  // No explicit Content-Type here — axios/the browser must generate it (with
+  // the required multipart boundary) from the FormData object itself. Setting
+  // 'multipart/form-data' without a boundary produces a malformed request
+  // body that FastAPI's multipart parser can't split into fields, which
+  // surfaces as a generic "could not parse the workbook" error even though
+  // the file itself is fine.
+  const { data } = await apiClient.post<WhatIfConfigStatus>('/what-if/config/upload', form)
   return data
 }
 
@@ -93,9 +97,8 @@ export async function exportConfig(
 export async function uploadTrainingData(file: File): Promise<TrainingDataUploadResult> {
   const form = new FormData()
   form.append('file', file)
-  const { data } = await apiClient.post<TrainingDataUploadResult>('/what-if/training-data/upload', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  // See uploadConfig's comment above — no explicit Content-Type for FormData bodies.
+  const { data } = await apiClient.post<TrainingDataUploadResult>('/what-if/training-data/upload', form)
   return data
 }
 
@@ -195,6 +198,15 @@ export interface SaveConfigRequest {
 
 export async function saveConfig(body: SaveConfigRequest): Promise<WhatIfConfigStatus> {
   const { data } = await apiClient.post<WhatIfConfigStatus>('/what-if/config/save', body)
+  return data
+}
+
+/** Downloads all 8 sheets as Config_file.xlsx — the wizard's always-available
+ * "Download current configuration" action, distinct from saveConfig (which
+ * persists to disk) and MappingPreviewGrid's own lighter export of just the
+ * generated PI mapping preview. */
+export async function exportFullConfig(body: SaveConfigRequest): Promise<Blob> {
+  const { data } = await apiClient.post('/what-if/config/export', { ...body, format: 'xlsx' }, { responseType: 'blob' })
   return data
 }
 

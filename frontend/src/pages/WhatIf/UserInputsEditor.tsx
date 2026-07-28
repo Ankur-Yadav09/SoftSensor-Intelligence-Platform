@@ -4,12 +4,18 @@ import { commitUserInputs, getUserInputs } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import type { UserInputsRow } from '../../api/types'
 
-const FIELDS: (keyof UserInputsRow)[] = ['Parameter', 'Value', 'Lower Limit', 'Upper Limit', 'Remark']
+const VALUE_FIELDS: (keyof UserInputsRow)[] = ['Value', 'Lower Limit', 'Upper Limit', 'Remark']
+
+interface UserInputsEditorProps {
+  /** Parameter dropdown options (section-scoped tags). Falls back to a
+   * free-text input when omitted. */
+  tagOptions?: string[]
+}
 
 // Editor for the "user inputs" sheet: the tags that get a Simulation
 // Overrides text box on the Dashboard, with their default value and
 // override bounds.
-export function UserInputsEditor() {
+export function UserInputsEditor({ tagOptions }: UserInputsEditorProps) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-user-inputs'], queryFn: getUserInputs })
   const [rows, setRows] = useState<UserInputsRow[]>([])
@@ -20,7 +26,10 @@ export function UserInputsEditor() {
 
   const commitMutation = useMutation({
     mutationFn: commitUserInputs,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['whatif-user-inputs'] }),
+    onSuccess: (result) => {
+      setRows(result)
+      queryClient.setQueryData(['whatif-user-inputs'], result)
+    },
   })
 
   if (query.isLoading) return <p className="caption">Loading user inputs…</p>
@@ -46,7 +55,8 @@ export function UserInputsEditor() {
         <table className="table-compact">
           <thead>
             <tr>
-              {FIELDS.map((f) => (
+              <th>Parameter</th>
+              {VALUE_FIELDS.map((f) => (
                 <th key={f}>{f}</th>
               ))}
               <th />
@@ -55,7 +65,30 @@ export function UserInputsEditor() {
           <tbody>
             {rows.map((row, i) => (
               <tr key={i}>
-                {FIELDS.map((f) => (
+                <td>
+                  {tagOptions ? (
+                    <select
+                      value={row.Parameter}
+                      onChange={(e) => updateCell(i, 'Parameter', e.target.value)}
+                      style={{ width: 200 }}
+                    >
+                      <option value="">—</option>
+                      {tagOptions.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={row.Parameter}
+                      onChange={(e) => updateCell(i, 'Parameter', e.target.value)}
+                      style={{ width: 200 }}
+                    />
+                  )}
+                </td>
+                {VALUE_FIELDS.map((f) => (
                   <td key={f}>
                     <input
                       type="text"

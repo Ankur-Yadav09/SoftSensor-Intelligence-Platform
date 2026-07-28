@@ -19,22 +19,19 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 }
 
 // This branch surfaces only the What-If Studio group — the Soft Sensor
-// Module's pages are still reachable via the routes linked below (their
-// own sidebar group is hidden here, not removed from routes.tsx).
+// Module's pages are still reachable via the routes in routes.tsx (they're
+// not deleted, just no longer given their own flat sidebar entries here:
+// Connect Data / Data Health / AI Feature Discovery / Build Model /
+// Experiment History are reused as horizontal tabs inside What-If Setup's
+// "Model Config" section instead — see ModelConfigTab.tsx).
 const NAV_ENTRIES: NavEntry[] = [
   { to: '/', label: 'Overview', icon: '🏠' },
   {
     label: 'What-If Studio',
     items: [
-      { to: '/what-if/overview', label: 'Overview', icon: '📖' },
-      { to: '/what-if/case-setup', label: 'What-If Case Setup', icon: '🧙' },
-      { to: '/upload', label: 'Connect Data', icon: '📤' },
-      { to: '/preprocess', label: 'Data Health', icon: '⚙️' },
-      { to: '/feature-selection', label: 'Feature Discovery', icon: '🔍' },
-      { to: '/train', label: 'Build Model', icon: '🧠' },
-      { to: '/predict', label: 'Prediction', icon: '🔮' },
-      { to: '/experiment-history', label: 'Experiment History', icon: '📋' },
-      { to: '/what-if/dashboard', label: 'What-If Dashboard', icon: '📊' },
+      { to: '/what-if/overview', label: 'Welcome', icon: '👋' },
+      { to: '/what-if/case-setup', label: 'What-If Setup', icon: '🧙' },
+      { to: '/what-if/dashboard', label: 'What-If Analysis', icon: '📊' },
     ],
   },
 ]

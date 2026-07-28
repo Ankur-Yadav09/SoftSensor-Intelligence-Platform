@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getConfigStatus, getModelsStatus, getTagOptions, runScenario } from '../../api/whatIf'
+import { extractErrorMessage } from '../../api/errors'
 import { Callout } from '../../components/Callout'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
 import { ActualVsEstimatedTable } from './ActualVsEstimatedTable'
@@ -13,6 +14,11 @@ import { TargetSectionSelector } from './TargetSectionSelector'
 import { TimestampSelector } from './TimestampSelector'
 import { ValidationFiltersPanel } from './ValidationFiltersPanel'
 
+// What-If Analysis — kept as a single flowing page matching the reference
+// Streamlit "📊 What-if Dashboard" tab's layout/order exactly (Target
+// Section → Tag Source → Timestamp/Baseline → Simulation Overrides →
+// Compute → KPI cards → Actual vs Estimated → Historical Validation), not
+// split into tabs.
 export function DashboardPage() {
   const { generatedTags, targetSection, setTargetSection } = useActiveWhatIf()
 
@@ -64,11 +70,11 @@ export function DashboardPage() {
   if (!gateReady) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <h1>What-If Dashboard</h1>
+        <h1>What-If Analysis</h1>
         <Callout variant="warning">
-          🔒 Simulation overrides are locked. Complete the{' '}
-          <Link to="/what-if/case-setup">What-If Case Setup</Link> page — PI Tag Mapping, Model Mapping, and all
-          trained Kalman models must be present — before this dashboard unlocks.
+          🔒 Simulation overrides are locked. Complete{' '}
+          <Link to="/what-if/case-setup">What-If Setup</Link> — PI Tag Mapping, Model Mapping, and all trained Kalman
+          models must be present — before this page unlocks.
         </Callout>
       </div>
     )
@@ -82,7 +88,7 @@ export function DashboardPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
-      <h1>What-If Dashboard</h1>
+      <h1>What-If Analysis</h1>
 
       <div className="card" style={{ padding: '1.5rem' }}>
         <TargetSectionSelector value={targetSection} onChange={setTargetSection} />
@@ -119,10 +125,7 @@ export function DashboardPage() {
         </button>
         {scenarioMutation.isError && (
           <div style={{ marginTop: '0.75rem' }}>
-            <Callout variant="error">
-              {(scenarioMutation.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-                'What-if analysis failed.'}
-            </Callout>
+            <Callout variant="error">{extractErrorMessage(scenarioMutation.error, 'What-if analysis failed.')}</Callout>
           </div>
         )}
       </div>
