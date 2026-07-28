@@ -1,37 +1,41 @@
-/* Matches the REAL rendered Streamlit app (verified via live screenshots +
-   computed styles), not just config/settings.py's THEME_CSS source — that
-   CSS's `.main` dark-background rule turned out not to match Streamlit's
-   current DOM, so the live app actually renders a light main content area
-   with dark text and only the sidebar in dark navy. Sidebar gradient values
-   below are exact matches (rgb(15,42,82)/rgb(22,54,96), confirmed via
-   getComputedStyle against the live app). */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Outfit:wght@400;600;800&display=swap');
+/* Palette/typography/table structure ported from mockups/whatif-ui-mockup.html
+   ("What-If Module — Redesign Mockup") — same variable NAMES the rest of the
+   app already threads through every component (var(--primary), var(--border),
+   var(--text-caption), etc.), just remapped to the mockup's values, so this
+   file is the only place that needed to change for the new look to propagate
+   everywhere. Light theme only — the mockup's dark-mode variables aren't
+   wired in since this app has no theme-toggle mechanism today; adding one
+   would be a new feature, not a restyle. */
 
 :root {
-  --primary: #2563eb;
-  --primary-light: #4da6ff;
-  --secondary: #2b6cb0;
-  --accent: #10b981;
-  --sidebar-top: #0f2a52;
-  --sidebar-mid: #163660;
+  --canvas: #f2f5f8;
+  --primary: #0e7c86;
+  --primary-light: #139aa6;
+  --secondary: #4a54c4;
+  --accent: #0e7c86;
+  --accent-ink: #ffffff;
+  --sidebar-top: #ffffff;
+  --sidebar-mid: #ffffff;
   --bg-page: #ffffff;
-  --bg-subtle: #f8fafc;
-  --text-main: #31333f;
-  --text-caption: #6b7280;
-  --border: #e5e7eb;
-  --control-bg: #f0f2f6;
-  --banner-from: #334155;
-  --banner-to: #1e293b;
-  --banner-heading: #7dd3fc;
-  --banner-subtitle: #cbd5e1;
-  --info-bg: #eaf3fd;
-  --info-text: #1e4a7a;
-  --success-bg: #eafaf1;
-  --success-text: #0f5f42;
-  --warning-bg: #fef8e6;
-  --warning-text: #8a5a10;
-  --error-bg: #fdecec;
-  --error-text: #9c2626;
+  --bg-subtle: #eaeff4;
+  --text-main: #152230;
+  --text-caption: #5c6b7a;
+  --text-faint: #8a97a5;
+  --border: #dbe2e9;
+  --control-bg: #f2f5f8;
+  --banner-from: #123339;
+  --banner-to: #0e7c86;
+  --banner-heading: #ffffff;
+  --banner-subtitle: #d7ecec;
+  --info-bg: #e3f2f2;
+  --info-text: #0e7c86;
+  --success-bg: #e6f5eb;
+  --success-text: #2f9e58;
+  --warning-bg: #fbf0dd;
+  --warning-text: #c98a1a;
+  --error-bg: #fce9e7;
+  --error-text: #c0392b;
+  --radius: 10px;
 }
 
 * {
@@ -40,75 +44,75 @@
 
 body {
   margin: 0;
-  background: var(--bg-page);
+  background: var(--canvas);
   color: var(--text-main);
-  font-family: 'Inter', sans-serif;
+  font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   min-height: 100vh;
+  font-size: 14px;
 }
 
 h1, h2, h3, h4 {
-  font-family: 'Outfit', sans-serif;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   margin: 0;
   color: var(--text-main);
 }
 
 button {
-  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  border: none;
-  padding: 0.6rem 1.5rem;
-  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
   font-weight: 600;
   font-family: inherit;
   font-size: 0.9rem;
   cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: filter 0.15s ease, background 0.15s ease;
 }
 
 button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
-  background: linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%);
+  filter: brightness(1.06);
 }
 
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
+  filter: none;
 }
 
-/* A plain "toggle chip" look for buttons used as selection pills (feature
-   toggles, algorithm picker, source picker) rather than the primary CTA
-   gradient — pages apply this class when a button represents a selectable
-   option instead of an action. */
+/* A plain, neutral bordered look for buttons used as selection pills
+   (feature toggles, algorithm picker, source picker) rather than the primary
+   accent CTA — pages apply this class when a button represents a selectable
+   option instead of an action. Matches the mockup's default .btn look. */
 button.chip {
-  background: var(--control-bg);
+  background: var(--bg-page);
   color: var(--text-main);
+  border: 1px solid var(--border);
   box-shadow: none;
-  font-weight: 500;
+  font-weight: 600;
 }
 button.chip:hover {
-  background: #e2e8f0;
-  transform: none;
-  box-shadow: none;
+  background: var(--bg-subtle);
+  filter: none;
 }
 button.chip.active {
-  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 button.chip.active.accent {
-  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  background: var(--success-text);
+  border-color: var(--success-text);
+  color: white;
 }
 
 .card {
   background: var(--bg-page);
-  border-radius: 14px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
 }
 
 /* Small key-value tables embedded in reasoning text (per-feature score
@@ -123,19 +127,21 @@ button.chip.active.accent {
 
 table {
   background: var(--bg-page);
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   overflow: hidden;
+  font-size: 0.915rem;
 }
 
 th, td {
   text-align: left;
-  padding: 0.6rem 1rem;
+  padding: 0.64rem 0.86rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.87rem;
+  font-size: 0.915rem;
+  white-space: nowrap;
 }
 
 th {
@@ -143,12 +149,16 @@ th {
   color: var(--text-caption);
   font-weight: 600;
   text-transform: uppercase;
-  font-size: 0.72rem;
-  letter-spacing: 0.05em;
+  font-size: 0.785rem;
+  letter-spacing: 0.04em;
 }
 
 tr:last-child td {
   border-bottom: none;
+}
+
+tr:hover td {
+  background: var(--bg-subtle);
 }
 
 /* Applied when a table is capped to N visible rows (DataTable's
@@ -209,17 +219,18 @@ table:has(.sticky-col) {
 }
 
 .metric-value {
-  font-size: 1.8rem;
+  font-size: 1.6rem;
   font-weight: 700;
-  color: var(--primary);
+  letter-spacing: -0.01em;
+  color: var(--text-main);
 }
 
 .status-card {
   background: var(--bg-page);
-  padding: 1.5rem;
-  border-radius: 14px;
+  padding: 1.15rem 1.3rem;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
 }
 
 .caption {
@@ -234,16 +245,17 @@ code {
   padding: 0.1rem 0.4rem;
   border-radius: 6px;
   font-size: 0.87em;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
 
-/* Form controls — Streamlit's light-gray widget look */
+/* Form controls — mockup's flat, bordered look */
 select,
 input[type='number'],
 input[type='text'] {
-  background: var(--control-bg);
+  background: var(--canvas);
   color: var(--text-main);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 0.5rem 0.7rem;
   font-family: inherit;
   font-size: 0.9rem;
@@ -251,15 +263,16 @@ input[type='text'] {
 
 select:focus,
 input:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+  box-shadow: none;
 }
 
 input[type='checkbox'] {
   width: 16px;
   height: 16px;
-  accent-color: var(--primary);
+  accent-color: var(--accent);
 }
 
 label {
@@ -267,19 +280,21 @@ label {
   font-size: 0.9rem;
 }
 
-/* Numbered step badge, e.g. the "①  Load Dataset" headers on the real app's
-   wizard-style pages. */
+/* Numbered step badge, e.g. the "①  Load Dataset" headers on wizard-style
+   pages — small circular outline badge matching the mockup's .rail-num,
+   filled solid once active/complete. */
 .step-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
-  background: var(--primary);
-  color: white;
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   flex-shrink: 0;
 }
 
@@ -293,12 +308,11 @@ label {
   font-size: 1.05rem;
 }
 
-/* Dark "hero" banner used to introduce a major section (e.g. "Target
-   Variable Selection", "Data Understanding") — a recurring pattern on the
-   real app distinct from the plain white page background. */
+/* Section banner used to introduce a major module (e.g. What-If Studio's
+   hero) — dark teal gradient, distinct from the plain page canvas. */
 .section-banner {
   background: linear-gradient(135deg, var(--banner-from) 0%, var(--banner-to) 100%);
-  border-radius: 14px;
+  border-radius: var(--radius);
   padding: 1.5rem 1.75rem;
   display: flex;
   align-items: center;
@@ -318,10 +332,11 @@ label {
   font-size: 0.9rem;
 }
 
-/* Pastel callouts matching st.info / st.success / st.warning / st.error */
+/* Pastel callouts matching st.info / st.success / st.warning / st.error,
+   recolored to the mockup's info/good/warn/crit palette. */
 .callout {
-  border-radius: 10px;
-  padding: 0.85rem 1.1rem;
+  border-radius: 9px;
+  padding: 0.75rem 1rem;
   font-size: 0.9rem;
   line-height: 1.5;
 }
@@ -341,3 +356,50 @@ label {
   background: var(--error-bg);
   color: var(--error-text);
 }
+
+/* Small rounded status indicator — mockup's .pill. Additive utility class;
+   existing ✅/⏳-prefixed text sublabels keep working unchanged, this is
+   available wherever a page wants an explicit colored state indicator. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.pill.draft {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+.pill.active {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+.pill.info {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+.pill.crit {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+/* Section-coded badges — mockup's .badge.cgc/.prc/.erc/.furnace/.quench,
+   for tables that show a plant Section value (PI Tag Mapping, Model
+   Mapping, MV/DV/CV list). */
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.badge.cgc { background: #e3f2f2; color: #0e7c86; }
+.badge.prc { background: #eef0fb; color: #4a54c4; }
+.badge.erc { background: #fdf0e6; color: #b56321; }
+.badge.furnace { background: #fce9e7; color: #c0392b; }
+.badge.quench { background: #eaf4ea; color: #3a8a4a; }
+.badge.cold { background: var(--bg-subtle); color: var(--text-caption); }

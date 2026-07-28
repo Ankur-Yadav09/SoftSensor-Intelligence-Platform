@@ -44,11 +44,11 @@ function NavItem({ item }: { item: NavLeaf }) {
       style={({ isActive }) => ({
         display: 'flex',
         alignItems: 'center',
-        gap: '0.75rem',
-        padding: '0.55rem 0.6rem',
-        borderRadius: 12,
+        gap: '0.65rem',
+        padding: '0.5rem 0.6rem',
+        borderRadius: 8,
         textDecoration: 'none',
-        background: isActive ? 'rgba(77, 166, 255, 0.16)' : 'transparent',
+        background: isActive ? 'var(--info-bg)' : 'transparent',
         transition: 'background 0.15s ease',
       })}
     >
@@ -56,25 +56,24 @@ function NavItem({ item }: { item: NavLeaf }) {
         <>
           <span
             style={{
-              width: 32,
-              height: 32,
+              width: 26,
+              height: 26,
               flexShrink: 0,
-              borderRadius: 9,
+              borderRadius: 7,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '1.05rem',
-              background: isActive ? 'linear-gradient(135deg, #4da6ff 0%, #2563eb 100%)' : 'rgba(255,255,255,0.06)',
-              boxShadow: isActive ? '0 2px 6px rgba(37, 99, 235, 0.4)' : 'none',
+              fontSize: '0.95rem',
+              background: isActive ? 'var(--accent)' : 'var(--bg-subtle)',
             }}
           >
             {item.icon}
           </span>
           <span
             style={{
-              color: isActive ? '#ffffff' : '#b7c9e3',
+              color: isActive ? 'var(--accent)' : 'var(--text-caption)',
               fontWeight: isActive ? 700 : 500,
-              fontSize: '0.94rem',
+              fontSize: '0.87rem',
             }}
           >
             {item.label}
@@ -109,26 +108,25 @@ export function Sidebar() {
         overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column',
-        background: `linear-gradient(180deg, var(--sidebar-top) 0%, var(--sidebar-mid) 50%, var(--sidebar-top) 100%)`,
-        borderRight: '1px solid rgba(77, 166, 255, 0.20)',
-        padding: '1.5rem 1rem',
+        background: 'var(--bg-page)',
+        borderRight: '1px solid var(--border)',
+        padding: '1.25rem 1rem',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem', padding: '0 0.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', marginBottom: '1.5rem', padding: '0.25rem 0.25rem 0.9rem', borderBottom: '1px solid var(--border)' }}>
         <div
           style={{
-            width: 42,
-            height: 42,
+            width: 36,
+            height: 36,
             flexShrink: 0,
-            borderRadius: 12,
-            background: 'linear-gradient(135deg, #4da6ff 0%, #2563eb 100%)',
+            borderRadius: 8,
+            background: 'var(--accent)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 4px 10px rgba(37, 99, 235, 0.35)',
           }}
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
             <path
               d="M3 12h4l2-7 4 14 2-7h6"
               stroke="white"
@@ -141,31 +139,31 @@ export function Sidebar() {
         <div>
           <div
             style={{
-              fontFamily: 'Outfit, sans-serif',
-              fontWeight: 800,
-              fontSize: '1.35rem',
-              color: '#ffffff',
+              fontWeight: 700,
+              fontSize: '1rem',
+              color: 'var(--text-main)',
               lineHeight: 1.15,
+              letterSpacing: '-0.01em',
             }}
           >
             SoftSense AI
           </div>
-          <div style={{ fontSize: '0.72rem', color: '#9db8dc', marginTop: '0.1rem' }}>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-caption)', marginTop: '0.1rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             Industrial Intelligence
           </div>
         </div>
       </div>
-      <nav ref={navRef} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+      <nav ref={navRef} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
         {NAV_ENTRIES.map((entry) =>
           isGroup(entry) ? (
-            <div key={entry.label} style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            <div key={entry.label} style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
               <div
                 style={{
-                  fontSize: '0.72rem',
+                  fontSize: '0.68rem',
                   fontWeight: 700,
                   textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  color: '#7f9dc4',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-faint)',
                   padding: '0 0.6rem',
                   marginBottom: '0.15rem',
                 }}
@@ -184,10 +182,10 @@ export function Sidebar() {
       <div style={{ flex: 1 }} />
       <div
         style={{
-          borderTop: '1px solid rgba(255,255,255,0.12)',
-          paddingTop: '0.9rem',
-          fontSize: '0.72rem',
-          color: '#7f9dc4',
+          borderTop: '1px solid var(--border)',
+          paddingTop: '0.85rem',
+          fontSize: '0.7rem',
+          color: 'var(--text-faint)',
         }}
       >
         v1.0 · FastAPI · React

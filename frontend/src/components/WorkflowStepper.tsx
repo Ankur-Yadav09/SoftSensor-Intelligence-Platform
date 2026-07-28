@@ -40,12 +40,11 @@ export function WorkflowStepper({ current }: WorkflowStepperProps) {
                     justifyContent: 'center',
                     fontSize: '1.1rem',
                     background: isCurrent
-                      ? 'linear-gradient(135deg, #4da6ff 0%, #2563eb 100%)'
+                      ? 'var(--accent)'
                       : isPast
                         ? 'var(--success-bg)'
                         : 'var(--control-bg)',
-                    color: isCurrent ? 'white' : isPast ? 'var(--success-text)' : 'var(--text-caption)',
-                    boxShadow: isCurrent ? '0 3px 8px rgba(37, 99, 235, 0.35)' : 'none',
+                    color: isCurrent ? 'var(--accent-ink)' : isPast ? 'var(--success-text)' : 'var(--text-caption)',
                     border: isCurrent ? 'none' : '1px solid var(--border)',
                   }}
                 >

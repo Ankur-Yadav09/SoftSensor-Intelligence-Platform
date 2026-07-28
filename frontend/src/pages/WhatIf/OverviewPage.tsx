@@ -217,8 +217,8 @@ export function WhatIfOverviewPage() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontSize: '1.1rem',
-                    background: i === 0 ? 'linear-gradient(135deg, #4da6ff 0%, #2563eb 100%)' : 'var(--control-bg)',
-                    color: i === 0 ? 'white' : 'var(--text-caption)',
+                    background: i === 0 ? 'var(--accent)' : 'var(--control-bg)',
+                    color: i === 0 ? 'var(--accent-ink)' : 'var(--text-caption)',
                     border: i === 0 ? 'none' : '1px solid var(--border)',
                   }}
                 >
