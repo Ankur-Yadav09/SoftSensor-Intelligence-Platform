@@ -87,6 +87,27 @@ export function modelInputOptions(piRows: PiMappingRow[], mvdvcvRows: MvDvCvTagR
   return [...mvTags, ...other]
 }
 
+/** Model Mapping's per-row input-tag dropdown options: when the row has its
+ * own Section chosen, only tags belonging to that exact section (MV/DV/CV
+ * first, then PI); with no Section chosen, the complete unfiltered tag list
+ * (every MV/DV/CV and PI tag, regardless of section). */
+export function modelInputOptionsForSection(
+  piRows: PiMappingRow[],
+  mvdvcvRows: MvDvCvTagRow[],
+  section: string | undefined,
+): string[] {
+  const sec = (section ?? '').trim()
+  if (!sec) {
+    const mvTags = dedupe(mvdvcvRows.map((r) => r.GeneralizedDescription).filter(Boolean))
+    const mvLower = new Set(mvTags.map((t) => t.toLowerCase()))
+    const other = dedupe(piRows.map((r) => r['Generalized Description']).filter(Boolean)).filter(
+      (t) => !mvLower.has(t.toLowerCase()),
+    )
+    return [...mvTags, ...other]
+  }
+  return modelInputOptions(piRows, mvdvcvRows, new Set([sec.toLowerCase()]))
+}
+
 function dedupe(values: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []

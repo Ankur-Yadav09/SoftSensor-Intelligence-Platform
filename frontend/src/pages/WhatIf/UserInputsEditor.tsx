@@ -10,12 +10,15 @@ interface UserInputsEditorProps {
   /** Parameter dropdown options (section-scoped tags). Falls back to a
    * free-text input when omitted. */
   tagOptions?: string[]
+  /** Called after a successful save — lets the parent tab strip advance to
+   * the next section (Results Layout) automatically. */
+  onSaved?: () => void
 }
 
 // Editor for the "user inputs" sheet: the tags that get a Simulation
 // Overrides text box on the Dashboard, with their default value and
 // override bounds.
-export function UserInputsEditor({ tagOptions }: UserInputsEditorProps) {
+export function UserInputsEditor({ tagOptions, onSaved }: UserInputsEditorProps) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-user-inputs'], queryFn: getUserInputs })
   const [rows, setRows] = useState<UserInputsRow[]>([])
@@ -29,6 +32,7 @@ export function UserInputsEditor({ tagOptions }: UserInputsEditorProps) {
     onSuccess: (result) => {
       setRows(result)
       queryClient.setQueryData(['whatif-user-inputs'], result)
+      onSaved?.()
     },
   })
 

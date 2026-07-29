@@ -8,25 +8,26 @@ function fmt(value: number | null): string {
   return value != null ? value.toFixed(4) : '—'
 }
 
-// Comma-joined column lists can run long (30+ features on this dataset) —
-// clip visually with an ellipsis but keep the full list one hover away via
-// the native title tooltip, rather than build a new expand/collapse widget.
-function ColumnList({ cols }: { cols: string[] }) {
-  const text = cols.join(', ') || '—'
+// The <details> reveal for X Features needs the FULL list actually visible
+// (the table's cells are globally `white-space: nowrap`, see theme.css, so a
+// plain clipped/ellipsis span never actually shows everything once
+// expanded) — wrap every feature as its own chip so a long list flows onto
+// multiple lines instead of being cut off or forcing the table wider than
+// the viewport.
+function FeatureChipList({ cols }: { cols: string[] }) {
+  if (cols.length === 0) return <span className="caption">—</span>
   return (
-    <span
-      title={text}
-      style={{
-        display: 'inline-block',
-        maxWidth: 280,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        verticalAlign: 'bottom',
-      }}
-    >
-      {text}
-    </span>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', maxWidth: 420 }}>
+      {cols.map((c) => (
+        <span
+          key={c}
+          className="badge cold"
+          style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}
+        >
+          {c}
+        </span>
+      ))}
+    </div>
   )
 }
 
@@ -151,11 +152,13 @@ export function ExperimentHistoryPage() {
                         <code>{m.name}</code>
                       </td>
                       <td>{m.algorithm ?? '—'}</td>
-                      <td>
+                      <td style={{ whiteSpace: 'normal' }}>
                         <details>
-                          <summary style={{ cursor: 'pointer' }}>{m.x_cols.length} feature(s)</summary>
-                          <div style={{ marginTop: '0.35rem' }}>
-                            <ColumnList cols={m.x_cols} />
+                          <summary style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            {m.x_cols.length} feature(s)
+                          </summary>
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <FeatureChipList cols={m.x_cols} />
                           </div>
                         </details>
                       </td>

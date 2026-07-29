@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { getColumnOrder, getConstraints, getPiMapping, getSectionOrder, getUserInputs } from '../../api/whatIf'
 import { Tabs } from '../../components/Tabs'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
@@ -12,6 +13,7 @@ import { UserInputsEditor } from './UserInputsEditor'
 // reorganized as horizontal sub-tabs instead of vertical wizard steps.
 export function WhatIfConfigTab() {
   const { targetSection } = useActiveWhatIf()
+  const [tab, setTab] = useState(0)
   const sectionOrderQuery = useQuery({ queryKey: ['whatif-section-order'], queryFn: getSectionOrder })
   const piMappingQuery = useQuery({ queryKey: ['whatif-pi-mapping'], queryFn: getPiMapping })
   const constraintsQuery = useQuery({ queryKey: ['whatif-constraints'], queryFn: getConstraints })
@@ -24,6 +26,8 @@ export function WhatIfConfigTab() {
 
   return (
     <Tabs
+      activeIndex={tab}
+      onChange={setTab}
       tabs={[
         {
           label: 'Constraints',
@@ -34,7 +38,7 @@ export function WhatIfConfigTab() {
                 Optional. Operating limits and the generic bump/abort rules that drive constraint checks during a
                 what-if run.
               </p>
-              <ConstraintsEditor tagOptions={tagOptions} />
+              <ConstraintsEditor tagOptions={tagOptions} onSaved={() => setTab(1)} />
             </div>
           ),
         },
@@ -44,7 +48,7 @@ export function WhatIfConfigTab() {
           content: (
             <div>
               <p className="caption">Optional. Parameters the operator can override, with their allowed range.</p>
-              <UserInputsEditor tagOptions={tagOptions} />
+              <UserInputsEditor tagOptions={tagOptions} onSaved={() => setTab(2)} />
             </div>
           ),
         },

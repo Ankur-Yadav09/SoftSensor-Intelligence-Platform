@@ -12,12 +12,15 @@ interface PiTagMappingEditorProps {
    * full-dictionary view used outside the wizard. */
   allowed?: Set<string>
   sectionOptions?: string[]
+  /** Called after a successful save — lets the parent tab strip advance to
+   * the next section (Input Tag Configuration) automatically. */
+  onSaved?: () => void
 }
 
 // Editable master PI dictionary (Pi_tags -> Generalized Description ->
 // Section) — Case Setup wizard Step 3. Rows outside the active scope stay
 // in the dataset untouched, just hidden from view (see `allowed`).
-export function PiTagMappingEditor({ allowed, sectionOptions }: PiTagMappingEditorProps) {
+export function PiTagMappingEditor({ allowed, sectionOptions, onSaved }: PiTagMappingEditorProps) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-pi-mapping'], queryFn: getPiMapping })
   const [rows, setRows] = useState<PiMappingRow[]>([])
@@ -31,6 +34,7 @@ export function PiTagMappingEditor({ allowed, sectionOptions }: PiTagMappingEdit
     onSuccess: (result) => {
       setRows(result)
       queryClient.setQueryData(['whatif-pi-mapping'], result)
+      onSaved?.()
     },
   })
 

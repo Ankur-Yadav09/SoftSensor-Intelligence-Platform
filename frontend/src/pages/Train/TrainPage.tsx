@@ -16,9 +16,14 @@ interface TrainPageProps {
   // See UploadPage's hideStepper for why: avoids a duplicate progress
   // indicator when this page is embedded inside What-If Studio's tabs.
   hideStepper?: boolean
+  // See UploadPage's onContinue for why: when embedded, "Continue" must stay
+  // inside What-If Studio (Experimentation & Model Selection) instead of
+  // navigating to the standalone /predict route, which isn't part of the
+  // What-If Studio module at all.
+  onContinue?: () => void
 }
 
-export function TrainPage({ hideStepper }: TrainPageProps = {}) {
+export function TrainPage({ hideStepper, onContinue }: TrainPageProps = {}) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { activeProject: projectId, setActiveProject: setProjectId } = useActiveProject()
@@ -228,8 +233,11 @@ export function TrainPage({ hideStepper }: TrainPageProps = {}) {
             </div>
           )}
 
-          <button style={{ marginTop: '1.25rem' }} onClick={() => navigate('/predict')}>
-            Continue to Predict →
+          <button
+            style={{ marginTop: '1.25rem' }}
+            onClick={() => (onContinue ? onContinue() : navigate('/predict'))}
+          >
+            {onContinue ? 'Continue to Experimentation & Model Selection →' : 'Continue to Predict →'}
           </button>
         </div>
       )}

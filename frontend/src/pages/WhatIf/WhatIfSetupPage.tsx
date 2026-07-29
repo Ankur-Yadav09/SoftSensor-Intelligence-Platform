@@ -118,7 +118,11 @@ export function WhatIfSetupPage() {
           activeIndex={primaryTab}
           onChange={setPrimaryTab}
           tabs={[
-            { label: 'System Config', complete: systemConfigComplete, content: <SystemConfigTab /> },
+            {
+              label: 'System Config',
+              complete: systemConfigComplete,
+              content: <SystemConfigTab onSaved={() => setPrimaryTab(1)} />,
+            },
             { label: 'Model Config', complete: modelConfigComplete, content: <ModelConfigTab /> },
             { label: 'What-If Config', content: <WhatIfConfigTab /> },
           ]}

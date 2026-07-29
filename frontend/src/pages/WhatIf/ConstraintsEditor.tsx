@@ -11,13 +11,16 @@ interface ConstraintsEditorProps {
   /** Parameter/Linked Parameter dropdown options (section-scoped tags).
    * Falls back to free-text inputs when omitted. */
   tagOptions?: string[]
+  /** Called after a successful save — lets the parent tab strip advance to
+   * the next section (User Inputs) automatically. */
+  onSaved?: () => void
 }
 
 // Editor for the Constraints sheet — the generic rule engine that replaced
 // the old hardcoded "bump turbine speed to max" / "abort if pressure
 // exceeds" logic (see src/whatif/engine.py's apply_linked_constraints_for_inputs
 // and check_abort_constraints). Every rule here is expressed as data, not code.
-export function ConstraintsEditor({ tagOptions }: ConstraintsEditorProps) {
+export function ConstraintsEditor({ tagOptions, onSaved }: ConstraintsEditorProps) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-constraints'], queryFn: getConstraints })
   const [rows, setRows] = useState<ConstraintsRow[]>([])
@@ -31,6 +34,7 @@ export function ConstraintsEditor({ tagOptions }: ConstraintsEditorProps) {
     onSuccess: (result) => {
       setRows(result)
       queryClient.setQueryData(['whatif-constraints'], result)
+      onSaved?.()
     },
   })
 

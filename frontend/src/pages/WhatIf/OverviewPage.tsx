@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   downloadBlob,
@@ -19,13 +19,6 @@ import { Callout } from '../../components/Callout'
 import { StatusCard } from '../../components/StatusCard'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
 
-const WORKFLOW_STAGES = [
-  { icon: '🧙', label: 'Configure' },
-  { icon: '🚀', label: 'Run Scenario' },
-  { icon: '⚖️', label: 'Compare Results' },
-  { icon: '📤', label: 'Export Report' },
-]
-
 const GUIDE_SECTIONS = [
   {
     title: '🔧 System Config',
@@ -38,9 +31,8 @@ const GUIDE_SECTIONS = [
   {
     title: '🧠 Model Config',
     items: [
-      'Connect Data, Data Health, AI Feature Discovery, Build Model, Experiment History — the shared Soft Sensor workflow, reused as-is.',
-      'Model Mapping — predicted parameters and their model inputs.',
-      'Generate What-If Models — upload training data and train (already-trained models are detected automatically).',
+      'Model Development — Connect Data, Data Health, Model Definition, AI Feature Discovery, Build Model. Freely revisit any step, rebuild, and run as many experiments as you need.',
+      'Experimentation & Model Selection — compare every experiment for a Predicted Parameter and mark one "Selected for What-If Analysis". What-If Analysis then uses it automatically; parameters with no selection fall back to the dedicated Kalman model (trained from the "Advanced" section there).',
     ],
   },
   {
@@ -56,7 +48,11 @@ const GUIDE_SECTIONS = [
 const FAQ_ITEMS = [
   {
     q: 'What-If Analysis is locked?',
-    a: 'Go to What-If Setup — it unlocks once PI Tag Mapping, Model Mapping, and all trained Kalman models are detected.',
+    a: 'Go to What-If Setup — it unlocks once PI Tag Mapping, Model Mapping, and every predicted parameter has a model (either a trained Kalman model, or an experiment marked "Selected for What-If Analysis" in Experimentation & Model Selection).',
+  },
+  {
+    q: 'Which model does What-If Analysis actually use for a parameter?',
+    a: 'Whichever experiment you marked "Selected for What-If Analysis" for that parameter, in Model Config → Experimentation & Model Selection. If none is selected, it falls back to that parameter\'s dedicated Kalman model.',
   },
   {
     q: 'Scenario failed to compute?',
@@ -105,6 +101,19 @@ export function WhatIfOverviewPage() {
   const { targetSection } = useActiveWhatIf()
   const [guideOpen, setGuideOpen] = useState(false)
   const [faqOpen, setFaqOpen] = useState(false)
+  const guideRef = useRef<HTMLDivElement>(null)
+  const faqRef = useRef<HTMLDivElement>(null)
+
+  // Opening the User Guide / FAQ reveals a panel below the Resources
+  // buttons — on a shorter viewport that panel lands off-screen, so
+  // scroll it into view instead of leaving the user to notice and scroll
+  // down themselves.
+  useEffect(() => {
+    if (guideOpen) guideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [guideOpen])
+  useEffect(() => {
+    if (faqOpen) faqRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [faqOpen])
 
   const configStatusQuery = useQuery({ queryKey: ['whatif-config-status'], queryFn: getConfigStatus })
   const modelStatusQuery = useQuery({ queryKey: ['whatif-models-status'], queryFn: getModelsStatus })
@@ -202,38 +211,6 @@ export function WhatIfOverviewPage() {
         </div>
       </div>
 
-      {/* Workflow at a glance */}
-      <div className="card" style={{ padding: '1.25rem 1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto' }}>
-          {WORKFLOW_STAGES.map((stage, i) => (
-            <div key={stage.label} style={{ display: 'flex', alignItems: 'center', flex: i === WORKFLOW_STAGES.length - 1 ? 'none' : 1 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', minWidth: 120 }}>
-                <div
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.1rem',
-                    background: i === 0 ? 'var(--accent)' : 'var(--control-bg)',
-                    color: i === 0 ? 'var(--accent-ink)' : 'var(--text-caption)',
-                    border: i === 0 ? 'none' : '1px solid var(--border)',
-                  }}
-                >
-                  {stage.icon}
-                </div>
-                <span style={{ fontSize: '0.82rem', fontWeight: 600, textAlign: 'center' }}>{stage.label}</span>
-              </div>
-              {i < WORKFLOW_STAGES.length - 1 && (
-                <div style={{ flex: 1, height: 2, background: 'var(--border)', marginBottom: '1.4rem' }} />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Configuration status */}
       <div>
         <h3 style={{ marginBottom: '0.75rem' }}>Configuration Status</h3>
@@ -276,7 +253,6 @@ export function WhatIfOverviewPage() {
         <h3 style={{ marginBottom: '0.75rem' }}>Resources</h3>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
           <ResourceButton icon="📘" label="User Guide" onClick={() => setGuideOpen((o) => !o)} />
-          <ResourceButton icon="📄" label="Technical Documentation" disabled disabledHint="Not published yet" />
           <ResourceButton
             icon="📥"
             label={downloadSampleMutation.isPending ? 'Preparing…' : 'Sample Configuration'}
@@ -291,7 +267,7 @@ export function WhatIfOverviewPage() {
         )}
 
         {guideOpen && (
-          <div className="card" style={{ padding: '1.25rem', marginTop: '1rem' }}>
+          <div ref={guideRef} className="card" style={{ padding: '1.25rem', marginTop: '1rem' }}>
             <div style={{ fontWeight: 700, marginBottom: '0.75rem' }}>📘 What-If Setup — at a glance</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {GUIDE_SECTIONS.map((section) => (
@@ -309,7 +285,7 @@ export function WhatIfOverviewPage() {
         )}
 
         {faqOpen && (
-          <div className="card" style={{ padding: '1.25rem', marginTop: '1rem' }}>
+          <div ref={faqRef} className="card" style={{ padding: '1.25rem', marginTop: '1rem' }}>
             <div style={{ fontWeight: 700, marginBottom: '0.6rem' }}>❓ Frequently Asked Questions</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
               {FAQ_ITEMS.map((item) => (

@@ -20,6 +20,15 @@ import { SectionOrderEditor } from './SectionOrderEditor'
 import { TargetSectionSelector } from './TargetSectionSelector'
 import type { ModelDetailsRow, PiMappingRow } from '../../api/types'
 
+interface SystemConfigTabProps {
+  /** Called after the last sub-tab (Input Tag Configuration) saves — lets
+   * the parent's primary tab strip (WhatIfSetupPage) advance to Model
+   * Config automatically. Completion badges are still computed independently
+   * in WhatIfSetupPage from the same shared react-query cache; this callback
+   * only drives the one-time "which sub-tab was just saved" navigation. */
+  onSaved?: () => void
+}
+
 // "System Config" section of What-If Setup — the plant's process structure
 // and input tags, as 3 horizontal sub-tabs instead of separate vertical
 // wizard steps: Process Flow Order, PI Tag Mapping, Input Tag Configuration
@@ -27,9 +36,10 @@ import type { ModelDetailsRow, PiMappingRow } from '../../api/types'
 // independently in WhatIfSetupPage.tsx from the same shared react-query
 // cache — this component doesn't report status up via a callback (that would
 // mean calling a parent state setter during render, which React disallows).
-export function SystemConfigTab() {
+export function SystemConfigTab({ onSaved }: SystemConfigTabProps = {}) {
   const queryClient = useQueryClient()
   const { targetSection, setTargetSection } = useActiveWhatIf()
+  const [tab, setTab] = useState(0)
   const [generatorOpen, setGeneratorOpen] = useState(false)
   const [mappingRows, setMappingRows] = useState<PiMappingRow[]>([])
   const [sectionCounts, setSectionCounts] = useState<Record<string, number>>({})
@@ -65,6 +75,8 @@ export function SystemConfigTab() {
 
   return (
     <Tabs
+      activeIndex={tab}
+      onChange={setTab}
       tabs={[
         {
           label: 'Process Flow Order',
@@ -75,7 +87,7 @@ export function SystemConfigTab() {
                 Enter plant sections in actual process order (e.g. Furnace → Quench → CGC → PRC → ERC → Cold), then
                 pick which section this case currently targets.
               </p>
-              <SectionOrderEditor />
+              <SectionOrderEditor onSaved={() => setTab(1)} />
               <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border)' }}>
                 <TargetSectionSelector value={targetSection} onChange={setTargetSection} />
               </div>
@@ -117,7 +129,11 @@ export function SystemConfigTab() {
                   </div>
                 </div>
               </details>
-              <PiTagMappingEditor allowed={allowed} sectionOptions={['', ...sectionOrderList]} />
+              <PiTagMappingEditor
+                allowed={allowed}
+                sectionOptions={['', ...sectionOrderList]}
+                onSaved={() => setTab(2)}
+              />
             </div>
           ),
         },
@@ -129,7 +145,7 @@ export function SystemConfigTab() {
                 Optional: Manipulated/Disturbance/Controlled variable tags — prioritized as an input-tag source ahead
                 of the general PI Tag Mapping list when configuring model inputs.
               </p>
-              <MvDvCvTagListEditor allowed={allowed} />
+              <MvDvCvTagListEditor allowed={allowed} onSaved={onSaved} />
               <p className="caption" style={{ marginTop: '0.5rem' }}>
                 {(mvdvcvQuery.data ?? []).length} tag(s) configured.
               </p>

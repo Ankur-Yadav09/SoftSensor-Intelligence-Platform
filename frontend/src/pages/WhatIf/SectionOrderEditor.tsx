@@ -4,11 +4,18 @@ import { commitSectionOrder, getSectionOrder } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import type { SectionOrderRow } from '../../api/types'
 
+interface SectionOrderEditorProps {
+  /** Called after a successful save — lets the parent tab strip advance to
+   * the next section (PI Tag Mapping) automatically instead of leaving the
+   * user to click over themselves. */
+  onSaved?: () => void
+}
+
 // Editor for the plant's process-flow order (Section Order sheet) — used by
 // src/whatif/engine.py's section-scoping (filter_model_details_by_section)
 // to decide what "upstream of the target section" means. Requires at least
 // 2 distinct sections to be meaningful.
-export function SectionOrderEditor() {
+export function SectionOrderEditor({ onSaved }: SectionOrderEditorProps = {}) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-section-order'], queryFn: getSectionOrder })
   const [rows, setRows] = useState<SectionOrderRow[]>([])
@@ -23,6 +30,7 @@ export function SectionOrderEditor() {
       setRows(result)
       queryClient.setQueryData(['whatif-section-order'], result)
       queryClient.invalidateQueries({ queryKey: ['whatif-target-section'] })
+      onSaved?.()
     },
   })
 

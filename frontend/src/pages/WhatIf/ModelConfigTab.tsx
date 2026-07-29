@@ -9,7 +9,7 @@ import { PreprocessPage } from '../Preprocess/PreprocessPage'
 import { TrainPage } from '../Train/TrainPage'
 import { UploadPage } from '../Upload/UploadPage'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
-import { allowedSet, modelInputOptions } from './caseSetupHelpers'
+import { allowedSet } from './caseSetupHelpers'
 import { CorrelationMatrixView } from './CorrelationMatrixView'
 import { ModelDevelopmentStepper } from './ModelDevelopmentStepper'
 import { ModelMappingEditor } from './ModelMappingEditor'
@@ -34,6 +34,7 @@ import type { ModelDevPhaseKey } from './ModelDevelopmentStepper'
 export function ModelConfigTab() {
   const navigate = useNavigate()
   const { targetSection } = useActiveWhatIf()
+  const [outerTab, setOuterTab] = useState(0)
   const [devPhase, setDevPhase] = useState<ModelDevPhaseKey>('connect')
 
   const sectionOrderQuery = useQuery({ queryKey: ['whatif-section-order'], queryFn: getSectionOrder })
@@ -46,7 +47,6 @@ export function ModelConfigTab() {
   const allowed = allowedSet(sectionOrderList, targetSection)
   const piRows = piMappingQuery.data ?? []
   const mvdvcvRows = mvdvcvQuery.data ?? []
-  const inputOptions = modelInputOptions(piRows, mvdvcvRows, allowed)
   const modelMappingComplete = (modelMappingQuery.data?.rows ?? []).some(
     (r) => (r['Predicted parameter'] ?? '').trim() !== '',
   )
@@ -56,11 +56,11 @@ export function ModelConfigTab() {
 
   let devContent
   if (devPhase === 'connect') {
-    devContent = <UploadPage hideStepper />
+    devContent = <UploadPage hideStepper onContinue={() => setDevPhase('health')} />
   } else if (devPhase === 'health') {
     devContent = (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <PreprocessPage hideStepper />
+        <PreprocessPage hideStepper onContinue={() => setDevPhase('modeldef')} />
         <div style={{ marginTop: '0.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
           <h3 style={{ marginTop: 0 }}>What-If Training Data — Correlation Matrix</h3>
           <p className="caption">
@@ -83,17 +83,32 @@ export function ModelConfigTab() {
             </span>
           )}
         </p>
-        <ModelMappingEditor allowed={allowed} tagOptions={inputOptions} sectionOptions={['', ...sectionOrderList]} />
+        <ModelMappingEditor
+          allowed={allowed}
+          piRows={piRows}
+          mvdvcvRows={mvdvcvRows}
+          sectionOptions={['', ...sectionOrderList]}
+        />
+        <button style={{ marginTop: '1.25rem' }} onClick={() => setDevPhase('discovery')}>
+          Continue to AI Feature Discovery →
+        </button>
       </div>
     )
   } else if (devPhase === 'discovery') {
-    devContent = <FeatureSelectionPage hideStepper />
+    devContent = (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <FeatureSelectionPage hideStepper />
+        <button onClick={() => setDevPhase('build')}>Continue to Build Model →</button>
+      </div>
+    )
   } else {
-    devContent = <TrainPage hideStepper />
+    devContent = <TrainPage hideStepper onContinue={() => setOuterTab(1)} />
   }
 
   return (
     <Tabs
+      activeIndex={outerTab}
+      onChange={setOuterTab}
       tabs={[
         {
           label: 'Model Development',

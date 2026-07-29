@@ -11,12 +11,16 @@ interface MvDvCvTagListEditorProps {
   /** Restricts which rows are shown/editable to those in-scope. Omit for
    * the unscoped, full-list view used outside the wizard. */
   allowed?: Set<string>
+  /** Called after a successful save — this is System Config's last sub-tab,
+   * so the parent uses this to advance to the next top-level section
+   * (Model Config) instead of leaving the user to click over themselves. */
+  onSaved?: () => void
 }
 
 // Editor for the optional MV/DV/CV Tag List — a prioritized, plant-engineer
 // curated input-tag source. When present, Model Mapping's input dropdowns
 // list these tags before the remaining PI tags.
-export function MvDvCvTagListEditor({ allowed }: MvDvCvTagListEditorProps) {
+export function MvDvCvTagListEditor({ allowed, onSaved }: MvDvCvTagListEditorProps) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-mvdvcv'], queryFn: getMvDvCvTaglist })
   const [rows, setRows] = useState<MvDvCvTagRow[]>([])
@@ -30,6 +34,7 @@ export function MvDvCvTagListEditor({ allowed }: MvDvCvTagListEditorProps) {
     onSuccess: (result) => {
       setRows(result)
       queryClient.setQueryData(['whatif-mvdvcv'], result)
+      onSaved?.()
     },
   })
 

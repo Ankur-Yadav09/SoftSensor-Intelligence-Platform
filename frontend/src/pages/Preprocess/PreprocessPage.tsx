@@ -17,9 +17,15 @@ interface PreprocessPageProps {
   // See UploadPage's hideStepper for why: avoids a duplicate progress
   // indicator when this page is embedded inside What-If Studio's tabs.
   hideStepper?: boolean
+  // See UploadPage's onContinue for why: when embedded, "Continue" must move
+  // to the next in-page Model Development phase instead of navigating to the
+  // standalone /feature-selection route. Model Development's next step after
+  // Data Health is Model Definition (not Feature Selection, unlike the
+  // standalone Soft Sensor workflow), so the button label differs too.
+  onContinue?: () => void
 }
 
-export function PreprocessPage({ hideStepper }: PreprocessPageProps = {}) {
+export function PreprocessPage({ hideStepper, onContinue }: PreprocessPageProps = {}) {
   const navigate = useNavigate()
   const { activeDataset: datasetName, setActiveDataset: setDatasetName } = useActiveDataset()
   const [lastCleaned, setLastCleaned] = useState<CleaningResponse | null>(null)
@@ -156,8 +162,11 @@ export function PreprocessPage({ hideStepper }: PreprocessPageProps = {}) {
                   Proceed to the <strong>Feature Selection</strong> page to choose X/Y columns, run feature
                   selection, and finalize the train/test split.
                 </p>
-                <button style={{ marginTop: '0.75rem' }} onClick={() => navigate('/feature-selection')}>
-                  Continue to Feature Selection →
+                <button
+                  style={{ marginTop: '0.75rem' }}
+                  onClick={() => (onContinue ? onContinue() : navigate('/feature-selection'))}
+                >
+                  {onContinue ? 'Continue to Model Definition →' : 'Continue to Feature Selection →'}
                 </button>
               </>
             )}
