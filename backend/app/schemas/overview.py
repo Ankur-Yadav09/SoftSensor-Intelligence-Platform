@@ -22,8 +22,18 @@ class SavedModelSummary(BaseModel):
     train_mae: Optional[float] = None
     x_cols: List[str] = []
     y_cols: List[str] = []
+    selected_for: List[str] = []
 
 
 class OverviewResponse(BaseModel):
     datasets: List[DatasetSummary]
     saved_models: List[SavedModelSummary]
+
+
+class SelectModelRequest(BaseModel):
+    parameter: str
+    model_name: str
+
+
+class ClearSelectionRequest(BaseModel):
+    parameter: str

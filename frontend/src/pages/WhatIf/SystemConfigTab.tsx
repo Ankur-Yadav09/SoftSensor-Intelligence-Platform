@@ -67,7 +67,7 @@ export function SystemConfigTab() {
     <Tabs
       tabs={[
         {
-          label: '🔀 Process Flow Order',
+          label: 'Process Flow Order',
           complete: processOrderComplete,
           content: (
             <div>
@@ -83,7 +83,7 @@ export function SystemConfigTab() {
           ),
         },
         {
-          label: '🏷️ PI Tag Mapping',
+          label: 'PI Tag Mapping',
           complete: piMappingComplete,
           content: (
             <div>
@@ -122,7 +122,7 @@ export function SystemConfigTab() {
           ),
         },
         {
-          label: '🧾 Input Tag Configuration (MV/DV/CV)',
+          label: 'Input Tag Configuration (MV/DV/CV)',
           content: (
             <div>
               <p className="caption">

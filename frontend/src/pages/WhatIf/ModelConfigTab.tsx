@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getModelMapping, getModelsStatus, getMvDvCvTaglist, getPiMapping, getSectionOrder } from '../../api/whatIf'
 import { Tabs } from '../../components/Tabs'
@@ -10,19 +11,30 @@ import { UploadPage } from '../Upload/UploadPage'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
 import { allowedSet, modelInputOptions } from './caseSetupHelpers'
 import { CorrelationMatrixView } from './CorrelationMatrixView'
+import { ModelDevelopmentStepper } from './ModelDevelopmentStepper'
 import { ModelMappingEditor } from './ModelMappingEditor'
 import { ModelStatusPanel } from './ModelStatusPanel'
 import { TrainingDataUpload } from './TrainingDataUpload'
+import type { ModelDevPhaseKey } from './ModelDevelopmentStepper'
 
-// "Model Config" section of What-If Setup — reuses the existing Soft Sensor
-// pages verbatim (Connect Data / Data Health / AI Feature Discovery / Build
-// Model / Experiment History — no duplicated implementations) alongside the
-// two What-If-specific steps (Model Mapping, Generate What-If Models), all
-// as horizontal sub-tabs. Correlation Matrix isn't a standalone tab — it's
-// appended inside Data Health, scoped to What-If's own training workbook.
+// "Model Config" section of What-If Setup, split into the two logical parts
+// of building a model: an iterative "Model Development" workflow (Connect
+// Data / Data Health / Model Definition / AI Feature Discovery / Build
+// Model — freely revisit any step, rebuild, run more experiments) and
+// "Experimentation & Model Selection" (compare every experiment Model
+// Development has produced, mark one per Predicted Parameter as the model
+// What-If Analysis actually uses — see ExperimentHistoryPage.tsx and
+// src/whatif/engine.py::predict_and_update_with_soft_sensor_model). All
+// Soft Sensor pages are reused verbatim, no duplicated implementations.
+// Correlation Matrix isn't a standalone tab — it's appended inside Data
+// Health, scoped to What-If's own training workbook. The dedicated
+// Kalman-filter training step lives folded into Experimentation & Model
+// Selection as a secondary/fallback action for parameters with no
+// Experiment-History-selected model.
 export function ModelConfigTab() {
   const navigate = useNavigate()
   const { targetSection } = useActiveWhatIf()
+  const [devPhase, setDevPhase] = useState<ModelDevPhaseKey>('connect')
 
   const sectionOrderQuery = useQuery({ queryKey: ['whatif-section-order'], queryFn: getSectionOrder })
   const piMappingQuery = useQuery({ queryKey: ['whatif-pi-mapping'], queryFn: getPiMapping })
@@ -42,58 +54,82 @@ export function ModelConfigTab() {
   const readyForAnalysis =
     !!piRows.length && !!(modelMappingQuery.data?.rows.length) && !!modelStatusQuery.data?.all_present
 
+  let devContent
+  if (devPhase === 'connect') {
+    devContent = <UploadPage hideStepper />
+  } else if (devPhase === 'health') {
+    devContent = (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <PreprocessPage hideStepper />
+        <div style={{ marginTop: '0.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+          <h3 style={{ marginTop: 0 }}>What-If Training Data — Correlation Matrix</h3>
+          <p className="caption">
+            Pearson correlation of the What-If training workbook — spot strongly related tags before mapping model
+            inputs below.
+          </p>
+          <CorrelationMatrixView />
+        </div>
+      </div>
+    )
+  } else if (devPhase === 'modeldef') {
+    devContent = (
+      <div>
+        <p className="caption">
+          Active scope: {[...allowed].length ? sectionOrderList.filter((s) => allowed.has(s.toLowerCase())).join(', ') : 'all sections'}.
+          Maps each predicted parameter to its Section and the ordered input feature tags its Kalman model consumes.
+          {modelMappingComplete && (
+            <span className="pill active" style={{ marginLeft: '0.6rem' }}>
+              ✓ Configured
+            </span>
+          )}
+        </p>
+        <ModelMappingEditor allowed={allowed} tagOptions={inputOptions} sectionOptions={['', ...sectionOrderList]} />
+      </div>
+    )
+  } else if (devPhase === 'discovery') {
+    devContent = <FeatureSelectionPage hideStepper />
+  } else {
+    devContent = <TrainPage hideStepper />
+  }
+
   return (
     <Tabs
       tabs={[
-        { label: '📤 Connect Data', content: <UploadPage /> },
         {
-          label: '⚙️ Data Health',
-          content: (
-            <div>
-              <PreprocessPage />
-              <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
-                <h3 style={{ marginTop: 0 }}>📈 What-If Training Data — Correlation Matrix</h3>
-                <p className="caption">
-                  Pearson correlation of the What-If training workbook — spot strongly related tags before mapping
-                  model inputs below.
-                </p>
-                <CorrelationMatrixView />
-              </div>
-            </div>
-          ),
-        },
-        { label: '🔍 AI Feature Discovery', content: <FeatureSelectionPage /> },
-        { label: '🧠 Build Model', content: <TrainPage /> },
-        { label: '📋 Experiment History', content: <ExperimentHistoryPage /> },
-        {
-          label: '🧭 Model Mapping',
-          complete: modelMappingComplete,
-          content: (
-            <div>
-              <p className="caption">
-                Active scope: {[...allowed].length ? sectionOrderList.filter((s) => allowed.has(s.toLowerCase())).join(', ') : 'all sections'}.
-                Maps each predicted parameter to its Section and the ordered input feature tags its Kalman model
-                consumes.
-              </p>
-              <ModelMappingEditor allowed={allowed} tagOptions={inputOptions} sectionOptions={['', ...sectionOrderList]} />
-            </div>
-          ),
-        },
-        {
-          label: '🧠 Generate What-If Models',
-          complete: !!modelStatusQuery.data?.all_present,
+          label: 'Model Development',
           content: (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <div className="card" style={{ padding: '1.5rem' }}>
-                <h3 style={{ marginTop: 0 }}>📤 Training Dataset</h3>
-                <TrainingDataUpload />
-              </div>
-              <ModelStatusPanel
-                status={modelStatusQuery.data}
-                isLoading={modelStatusQuery.isLoading}
-                canProceed={readyForAnalysis}
-                onProceed={() => navigate('/what-if/dashboard')}
-              />
+              <ModelDevelopmentStepper current={devPhase} onSelect={setDevPhase} />
+              {devContent}
+            </div>
+          ),
+        },
+        {
+          label: 'Experimentation & Model Selection',
+          content: (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <ExperimentHistoryPage />
+              <details className="card" style={{ padding: '1.5rem' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                  Advanced: train dedicated Kalman filter models
+                </summary>
+                <p className="caption" style={{ marginTop: '0.75rem' }}>
+                  Fallback for any parameter with no experiment "Selected for What-If Analysis" above — What-If
+                  Analysis uses this dedicated Kalman model for those parameters automatically.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1rem' }}>
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <h3 style={{ marginTop: 0 }}>Training Dataset</h3>
+                    <TrainingDataUpload />
+                  </div>
+                  <ModelStatusPanel
+                    status={modelStatusQuery.data}
+                    isLoading={modelStatusQuery.isLoading}
+                    canProceed={readyForAnalysis}
+                    onProceed={() => navigate('/what-if/dashboard')}
+                  />
+                </div>
+              </details>
             </div>
           ),
         },

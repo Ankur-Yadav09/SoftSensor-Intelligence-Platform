@@ -4,7 +4,6 @@ import { NavLink, useLocation } from 'react-router-dom'
 interface NavLeaf {
   to: string
   label: string
-  icon: string
 }
 
 interface NavGroup {
@@ -25,13 +24,13 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 // Experiment History are reused as horizontal tabs inside What-If Setup's
 // "Model Config" section instead — see ModelConfigTab.tsx).
 const NAV_ENTRIES: NavEntry[] = [
-  { to: '/', label: 'Overview', icon: '🏠' },
+  { to: '/', label: 'Overview' },
   {
     label: 'What-If Studio',
     items: [
-      { to: '/what-if/overview', label: 'Welcome', icon: '👋' },
-      { to: '/what-if/case-setup', label: 'What-If Setup', icon: '🧙' },
-      { to: '/what-if/dashboard', label: 'What-If Analysis', icon: '📊' },
+      { to: '/what-if/overview', label: 'Welcome' },
+      { to: '/what-if/case-setup', label: 'What-If Setup' },
+      { to: '/what-if/dashboard', label: 'What-If Analysis' },
     ],
   },
 ]
@@ -44,7 +43,6 @@ function NavItem({ item }: { item: NavLeaf }) {
       style={({ isActive }) => ({
         display: 'flex',
         alignItems: 'center',
-        gap: '0.65rem',
         padding: '0.5rem 0.6rem',
         borderRadius: 8,
         textDecoration: 'none',
@@ -53,32 +51,15 @@ function NavItem({ item }: { item: NavLeaf }) {
       })}
     >
       {({ isActive }) => (
-        <>
-          <span
-            style={{
-              width: 26,
-              height: 26,
-              flexShrink: 0,
-              borderRadius: 7,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '0.95rem',
-              background: isActive ? 'var(--accent)' : 'var(--bg-subtle)',
-            }}
-          >
-            {item.icon}
-          </span>
-          <span
-            style={{
-              color: isActive ? 'var(--accent)' : 'var(--text-caption)',
-              fontWeight: isActive ? 700 : 500,
-              fontSize: '0.87rem',
-            }}
-          >
-            {item.label}
-          </span>
-        </>
+        <span
+          style={{
+            color: isActive ? 'var(--accent)' : 'var(--text-caption)',
+            fontWeight: isActive ? 700 : 500,
+            fontSize: '0.87rem',
+          }}
+        >
+          {item.label}
+        </span>
       )}
     </NavLink>
   )

@@ -13,8 +13,14 @@ captured at training time.
 """
 from __future__ import annotations
 
-from src.data.database import list_datasets_from_db, list_models_from_registry
-from src.persistence.model_store import list_saved_models
+from src.data.database import (
+    clear_model_selection as _clear_model_selection,
+    list_datasets_from_db,
+    list_model_selections,
+    list_models_from_registry,
+    set_model_selection as _set_model_selection,
+)
+from src.persistence.model_store import list_saved_models as list_saved_models_on_disk
 
 from backend.app.schemas.datasets import DatasetSummary
 from backend.app.schemas.overview import OverviewResponse, SavedModelSummary
@@ -29,10 +35,12 @@ def get_overview() -> OverviewResponse:
     registry_by_name = {
         r["model_name"]: r for r in list_models_from_registry()  # unchanged
     }
+    selections = list_model_selections()  # {parameter: model_name}
 
     saved_models = []
-    for m in list_saved_models():  # src.persistence.model_store — unchanged
+    for m in list_saved_models_on_disk():  # src.persistence.model_store — unchanged
         reg = registry_by_name.get(m["name"])
+        y_cols = m.get("y_cols", [])
         saved_models.append(
             SavedModelSummary(
                 name=m["name"],
@@ -48,8 +56,32 @@ def get_overview() -> OverviewResponse:
                 train_rmse=reg["train_rmse"] if reg else None,
                 train_mae=reg["train_mae"] if reg else None,
                 x_cols=m.get("x_cols", []),
-                y_cols=m.get("y_cols", []),
+                y_cols=y_cols,
+                selected_for=[p for p in y_cols if selections.get(p) == m["name"]],
             )
         )
 
     return OverviewResponse(datasets=datasets, saved_models=saved_models)
+
+
+def select_model_for_parameter(parameter: str, model_name: str) -> OverviewResponse:
+    """Mark model_name as the active Soft Sensor model for parameter — the
+    "Use for What-If Analysis" action on Experiment History. Validates the
+    model actually exists on disk and predicts that parameter, so a stale or
+    mismatched (parameter, model_name) pair can't silently get wired in."""
+    models_on_disk = {m["name"]: m for m in list_saved_models_on_disk()}
+    model = models_on_disk.get(model_name)
+    if model is None:
+        raise ValueError(f"No saved model named '{model_name}'.")
+    if parameter not in model.get("y_cols", []):
+        raise ValueError(f"Model '{model_name}' does not predict parameter '{parameter}'.")
+
+    _set_model_selection(parameter, model_name)
+    return get_overview()
+
+
+def clear_model_selection(parameter: str) -> OverviewResponse:
+    """Un-pick the selected experiment for parameter, reverting it to the
+    dedicated Kalman-filter fallback in src/whatif/engine.py."""
+    _clear_model_selection(parameter)
+    return get_overview()

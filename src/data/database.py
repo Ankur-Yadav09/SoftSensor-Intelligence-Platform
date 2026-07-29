@@ -97,6 +97,21 @@ def init_db() -> None:
         _ensure_column(conn, "model_registry", "train_r2", "REAL")
         _ensure_column(conn, "model_registry", "train_rmse", "REAL")
         _ensure_column(conn, "model_registry", "train_mae", "REAL")
+        # Which saved Soft Sensor model (model_registry/saved_models) is the
+        # active predictor for a given What-If "Predicted parameter" — the
+        # single, narrow bridge between the two otherwise-separate
+        # persistence worlds (see ARCHITECTURE.md §4). One row per parameter;
+        # selecting a new model for the same parameter replaces this row
+        # rather than adding another (see set_model_selection()).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS whatif_model_selection (
+                parameter   TEXT PRIMARY KEY,
+                model_name  TEXT NOT NULL,
+                selected_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -288,3 +303,41 @@ def delete_model_from_registry(model_id: int) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM model_registry WHERE id = ?", (model_id,))
         conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# What-If model selection (Experiment History "Use for What-If Analysis")
+# ---------------------------------------------------------------------------
+
+
+def set_model_selection(parameter: str, model_name: str) -> None:
+    """Mark model_name as the active Soft Sensor model for parameter.
+
+    Upsert on the parameter PRIMARY KEY — this is what guarantees only one
+    experiment can be selected per parameter at a time.
+    """
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO whatif_model_selection (parameter, model_name, selected_at)
+            VALUES (?, ?, ?)
+            """,
+            (parameter, model_name, now),
+        )
+        conn.commit()
+
+
+def clear_model_selection(parameter: str) -> None:
+    """Remove any selection for parameter, reverting it to the dedicated
+    Kalman-filter fallback path in src/whatif/engine.py."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM whatif_model_selection WHERE parameter = ?", (parameter,))
+        conn.commit()
+
+
+def list_model_selections() -> Dict[str, str]:
+    """Return {parameter: model_name} for every currently selected experiment."""
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute("SELECT parameter, model_name FROM whatif_model_selection").fetchall()
+    return {r[0]: r[1] for r in rows}

@@ -26,7 +26,7 @@ export function WhatIfConfigTab() {
     <Tabs
       tabs={[
         {
-          label: '🚧 Constraints',
+          label: 'Constraints',
           complete: (constraintsQuery.data ?? []).length > 0,
           content: (
             <div>
@@ -39,7 +39,7 @@ export function WhatIfConfigTab() {
           ),
         },
         {
-          label: '🎚️ User Inputs',
+          label: 'User Inputs',
           complete: (userInputsQuery.data ?? []).length > 0,
           content: (
             <div>
@@ -49,7 +49,7 @@ export function WhatIfConfigTab() {
           ),
         },
         {
-          label: '📋 Results Layout',
+          label: 'Results Layout',
           complete: (columnOrderQuery.data ?? []).length > 0,
           content: (
             <div>

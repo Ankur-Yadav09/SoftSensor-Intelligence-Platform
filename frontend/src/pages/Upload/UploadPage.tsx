@@ -9,7 +9,15 @@ import { UseExistingDatasetTab } from './UseExistingDatasetTab'
 
 type SourceTab = 'existing' | 'new'
 
-export function UploadPage() {
+interface UploadPageProps {
+  // Suppresses the standalone-workflow stepper when this page is embedded
+  // inside What-If Studio's Model Config tabs, which already show the same
+  // Connect Data -> ... progression via their own tab bar — showing both
+  // stacked on top of each other reads as two conflicting progress trackers.
+  hideStepper?: boolean
+}
+
+export function UploadPage({ hideStepper }: UploadPageProps = {}) {
   const navigate = useNavigate()
   const [tab, setTab] = useState<SourceTab>('existing')
   const { activeDataset: selectedName, setActiveDataset: setSelectedName } = useActiveDataset()
@@ -26,7 +34,7 @@ export function UploadPage() {
         <p className="caption">Connect historical process data to begin building an AI-powered Virtual Sensor.</p>
       </div>
 
-      <WorkflowStepper current="connect" />
+      {!hideStepper && <WorkflowStepper current="connect" />}
 
       <div style={{ display: 'flex', gap: '0.5rem' }}>
         <button

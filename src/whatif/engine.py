@@ -56,6 +56,8 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from src.data.database import list_model_selections
+from src.persistence.model_store import load_model_from_disk
 from src.whatif import config_io, plants
 from src.whatif.config_io import WhatIfConfig
 
@@ -212,6 +214,35 @@ def predict_and_update_with_kalman(
     pred_unscaled = scaler_y.inverse_transform([[pred_scaled]]).ravel()
 
     row_df.loc[:, y_col] = pred_unscaled[0]
+    return row_df
+
+
+def predict_and_update_with_soft_sensor_model(y_col: str, row_df: pd.DataFrame) -> pd.DataFrame:
+    """Alternative to predict_and_update_with_kalman(): if the Experiment
+    History page has marked a Soft Sensor model (src/persistence/model_store)
+    as the active predictor for y_col (src.data.database.whatif_model_selection),
+    load it and predict with it instead of the dedicated Kalman filter.
+
+    Raises LookupError — not FileNotFoundError — when no selection exists or
+    a required input column is missing from row_df, so the caller can
+    distinguish "nothing selected, use Kalman" from Kalman's own "no trained
+    artifacts" case while still chaining both into the same graceful,
+    logged, keep-baseline fallback."""
+    model_name = list_model_selections().get(y_col)
+    if model_name is None:
+        raise LookupError(f"No selected Soft Sensor experiment for '{y_col}'.")
+
+    wrapper, scaler_x, scaler_y, x_cols, y_cols = load_model_from_disk(model_name)
+    missing = [c for c in x_cols if c not in row_df.columns]
+    if missing:
+        raise LookupError(f"Selected experiment '{model_name}' needs missing column(s) {missing}.")
+
+    x_scaled = scaler_x.transform(row_df[x_cols])
+    preds = scaler_y.inverse_transform(wrapper.predict_scaled(x_scaled))
+    preds = np.asarray(preds)
+    pred_value = preds[0, y_cols.index(y_col)] if preds.ndim > 1 else preds.ravel()[0]
+
+    row_df.loc[:, y_col] = pred_value
     return row_df
 
 
@@ -426,11 +457,14 @@ def whatif_analysis(
             )
         elif y_col not in owned and y_col in selected_row_updated.columns:
             try:
-                selected_row_updated = predict_and_update_with_kalman(
-                    y_col, selected_row_updated, model_details_df, model_dir,
-                )
-            except FileNotFoundError:
-                logger.info("No trained model for '%s' in %s; keeping baseline value.", y_col, model_dir)
+                selected_row_updated = predict_and_update_with_soft_sensor_model(y_col, selected_row_updated)
+            except LookupError:
+                try:
+                    selected_row_updated = predict_and_update_with_kalman(
+                        y_col, selected_row_updated, model_details_df, model_dir,
+                    )
+                except FileNotFoundError:
+                    logger.info("No trained model for '%s' in %s; keeping baseline value.", y_col, model_dir)
 
         selected_row_updated = update_parameter_from_user_input(y_col, user_input_df, selected_row_updated)
 

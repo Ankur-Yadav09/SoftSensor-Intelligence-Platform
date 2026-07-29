@@ -30,6 +30,7 @@ export interface SavedModelSummary {
   train_mae: number | null
   x_cols: string[]
   y_cols: string[]
+  selected_for: string[]
 }
 
 export interface OverviewResponse {

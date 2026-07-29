@@ -118,9 +118,9 @@ export function WhatIfSetupPage() {
           activeIndex={primaryTab}
           onChange={setPrimaryTab}
           tabs={[
-            { label: '🔧 System Config', complete: systemConfigComplete, content: <SystemConfigTab /> },
-            { label: '🧠 Model Config', complete: modelConfigComplete, content: <ModelConfigTab /> },
-            { label: '⚙️ What-If Config', content: <WhatIfConfigTab /> },
+            { label: 'System Config', complete: systemConfigComplete, content: <SystemConfigTab /> },
+            { label: 'Model Config', complete: modelConfigComplete, content: <ModelConfigTab /> },
+            { label: 'What-If Config', content: <WhatIfConfigTab /> },
           ]}
         />
       </div>

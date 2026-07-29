@@ -19,7 +19,13 @@ import type { FeatureSelectionResult } from '../../api/types'
 
 type Pathway = 'configure' | 'automated'
 
-export function FeatureSelectionPage() {
+interface FeatureSelectionPageProps {
+  // See UploadPage's hideStepper for why: avoids a duplicate progress
+  // indicator when this page is embedded inside What-If Studio's tabs.
+  hideStepper?: boolean
+}
+
+export function FeatureSelectionPage({ hideStepper }: FeatureSelectionPageProps = {}) {
   const { activeDataset: datasetName, setActiveDataset: setDatasetName } = useActiveDataset()
   const [yCols, setYCols] = useState<Set<string>>(new Set())
   const [pathway, setPathway] = useState<Pathway>('automated')
@@ -119,7 +125,7 @@ export function FeatureSelectionPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       <h1>Feature Selection</h1>
 
-      <WorkflowStepper current="discovery" />
+      {!hideStepper && <WorkflowStepper current="discovery" />}
 
       <div>
         <StepHeading step={1} title="Select Target (Y) Variable" />

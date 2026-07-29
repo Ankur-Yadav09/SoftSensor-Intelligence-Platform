@@ -12,7 +12,13 @@ import { useActiveProject } from '../../state/ActiveProjectContext'
 import { ALGO_DEFAULTS, ALGO_FIELDS, ALGORITHMS, toApiHyperparameters } from './algorithmFields'
 import type { TrainingResult } from '../../api/types'
 
-export function TrainPage() {
+interface TrainPageProps {
+  // See UploadPage's hideStepper for why: avoids a duplicate progress
+  // indicator when this page is embedded inside What-If Studio's tabs.
+  hideStepper?: boolean
+}
+
+export function TrainPage({ hideStepper }: TrainPageProps = {}) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { activeProject: projectId, setActiveProject: setProjectId } = useActiveProject()
@@ -55,7 +61,7 @@ export function TrainPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       <h1>Train Model</h1>
 
-      <WorkflowStepper current="build" />
+      {!hideStepper && <WorkflowStepper current="build" />}
 
       <div className="card" style={{ padding: '1.5rem' }}>
         <StepHeading step={1} title="Choose a Project" />

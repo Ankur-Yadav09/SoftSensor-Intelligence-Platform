@@ -13,7 +13,13 @@ import { BasicPreprocessingTab } from './BasicPreprocessingTab'
 import { DataUnderstandingTab } from './DataUnderstandingTab'
 import type { CleaningResponse } from '../../api/preprocess'
 
-export function PreprocessPage() {
+interface PreprocessPageProps {
+  // See UploadPage's hideStepper for why: avoids a duplicate progress
+  // indicator when this page is embedded inside What-If Studio's tabs.
+  hideStepper?: boolean
+}
+
+export function PreprocessPage({ hideStepper }: PreprocessPageProps = {}) {
   const navigate = useNavigate()
   const { activeDataset: datasetName, setActiveDataset: setDatasetName } = useActiveDataset()
   const [lastCleaned, setLastCleaned] = useState<CleaningResponse | null>(null)
@@ -44,7 +50,7 @@ export function PreprocessPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       <h1>Data Preprocessing</h1>
 
-      <WorkflowStepper current="health" />
+      {!hideStepper && <WorkflowStepper current="health" />}
 
       <div>
         <StepHeading step={1} title="Load Dataset" />

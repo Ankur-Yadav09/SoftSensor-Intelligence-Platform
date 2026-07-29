@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
-import { getOverview } from '../../api/overview'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { clearModelSelection, getOverview, selectModelForParameter } from '../../api/overview'
 import { Callout } from '../../components/Callout'
 import type { SavedModelSummary } from '../../api/types'
 
@@ -29,30 +30,93 @@ function ColumnList({ cols }: { cols: string[] }) {
   )
 }
 
-// A plain, business-readable "one row per trained model" table — the
-// domain-person-facing counterpart to MLflow's run list, built entirely
-// from what training_service.py::_finish() already writes to the
-// model_registry (no new tracking, just a new read-only view of it).
+interface ExperimentRow {
+  parameter: string
+  model: SavedModelSummary
+}
+
+// One row per (parameter, model) pair — a multi-output model (y_cols.length
+// > 1) contributes one row per parameter it predicts, since Experiment
+// History tracks "by Predicted Parameter (Y)" per the spec, not by model.
+// Sorted by parameter then newest-first within a parameter, so experiments
+// for the same Y stay adjacent in the single table without needing a
+// separate table per group.
+function toExperimentRows(models: SavedModelSummary[]): ExperimentRow[] {
+  const rows: ExperimentRow[] = []
+  for (const m of models) {
+    for (const y of m.y_cols) {
+      rows.push({ parameter: y, model: m })
+    }
+  }
+  rows.sort((a, b) => {
+    const byParam = a.parameter.localeCompare(b.parameter)
+    if (byParam !== 0) return byParam
+    return a.model.saved_at < b.model.saved_at ? 1 : -1
+  })
+  return rows
+}
+
+// Both an experiment tracking page (compare feature sets/algorithms/accuracy
+// across every training run) and the model-selection page for What-If
+// Analysis: "Use for What-If Analysis" marks one experiment per Predicted
+// Parameter as the model What-If Analysis will actually run — see
+// src/whatif/engine.py::predict_and_update_with_soft_sensor_model. Nothing
+// here is ever deleted; every past experiment stays visible for comparison
+// even after a different one is selected.
 export function ExperimentHistoryPage() {
+  const queryClient = useQueryClient()
   const overviewQuery = useQuery({ queryKey: ['overview'], queryFn: getOverview })
+  const [parameterFilter, setParameterFilter] = useState('')
+
+  const selectMutation = useMutation({
+    mutationFn: ({ parameter, modelName }: { parameter: string; modelName: string }) =>
+      selectModelForParameter(parameter, modelName),
+    onSuccess: (data) => queryClient.setQueryData(['overview'], data),
+  })
+  const clearMutation = useMutation({
+    mutationFn: (parameter: string) => clearModelSelection(parameter),
+    onSuccess: (data) => queryClient.setQueryData(['overview'], data),
+  })
 
   if (overviewQuery.isLoading) return <p className="caption">Loading experiment history…</p>
   if (overviewQuery.isError) return <p className="caption">Failed to load experiment history.</p>
 
-  const models: SavedModelSummary[] = [...(overviewQuery.data?.saved_models ?? [])].sort((a, b) =>
-    a.saved_at < b.saved_at ? 1 : -1,
-  )
+  const models: SavedModelSummary[] = overviewQuery.data?.saved_models ?? []
+  const allRows = toExperimentRows(models)
+  const parameterNames = [...new Set(allRows.map((r) => r.parameter))].sort((a, b) => a.localeCompare(b))
+  const rows = parameterFilter ? allRows.filter((r) => r.parameter === parameterFilter) : allRows
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       <div>
-        <h1>📋 Experiment History</h1>
+        <h1>Experiment History</h1>
         <p className="caption">
-          Every trained model, one row each — dataset used, target/input features, and train vs. test accuracy.
+          Every trained model, one row each. Mark one experiment per Predicted Parameter (Y) "Selected for What-If
+          Analysis" — What-If Analysis then uses it automatically, no model choice needed there.
         </p>
       </div>
 
-      {models.length === 0 ? (
+      {parameterNames.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <label className="caption" htmlFor="experiment-parameter-filter">
+            Group by Predicted Parameter (Y)
+          </label>
+          <select
+            id="experiment-parameter-filter"
+            value={parameterFilter}
+            onChange={(e) => setParameterFilter(e.target.value)}
+          >
+            <option value="">All parameters ({parameterNames.length})</option>
+            {parameterNames.map((parameter) => (
+              <option key={parameter} value={parameter}>
+                {parameter}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {rows.length === 0 ? (
         <Callout variant="info">Train a model to see its experiment history here.</Callout>
       ) : (
         <div className="card" style={{ padding: '1.5rem' }}>
@@ -60,39 +124,71 @@ export function ExperimentHistoryPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Model</th>
+                  <th>Predicted Parameter (Y)</th>
+                  <th>Experiment</th>
                   <th>Algorithm</th>
-                  <th>Trained At</th>
-                  <th>Dataset</th>
-                  <th>Target (Y)</th>
-                  <th>Input Features (X)</th>
+                  <th>X Features</th>
                   <th>Train R²</th>
+                  <th>Train RMSE</th>
                   <th>Train MAE</th>
                   <th>Test R²</th>
+                  <th>Test RMSE</th>
                   <th>Test MAE</th>
+                  <th>Trained At</th>
+                  <th>What-If Analysis</th>
                 </tr>
               </thead>
               <tbody>
-                {models.map((m) => (
-                  <tr key={m.name}>
-                    <td>
-                      <code>{m.name}</code>
-                    </td>
-                    <td>{m.algorithm ?? '—'}</td>
-                    <td>{m.saved_at}</td>
-                    <td>{m.dataset_name ?? '—'}</td>
-                    <td>
-                      <ColumnList cols={m.y_cols} />
-                    </td>
-                    <td>
-                      <ColumnList cols={m.x_cols} />
-                    </td>
-                    <td>{fmt(m.train_r2)}</td>
-                    <td>{fmt(m.train_mae)}</td>
-                    <td>{fmt(m.avg_r2)}</td>
-                    <td>{fmt(m.avg_mae)}</td>
-                  </tr>
-                ))}
+                {rows.map(({ parameter, model: m }) => {
+                  const isSelected = m.selected_for.includes(parameter)
+                  const pending =
+                    (selectMutation.isPending && selectMutation.variables?.parameter === parameter) ||
+                    (clearMutation.isPending && clearMutation.variables === parameter)
+                  return (
+                    <tr key={`${parameter}::${m.name}`}>
+                      <td>{parameter}</td>
+                      <td>
+                        <code>{m.name}</code>
+                      </td>
+                      <td>{m.algorithm ?? '—'}</td>
+                      <td>
+                        <details>
+                          <summary style={{ cursor: 'pointer' }}>{m.x_cols.length} feature(s)</summary>
+                          <div style={{ marginTop: '0.35rem' }}>
+                            <ColumnList cols={m.x_cols} />
+                          </div>
+                        </details>
+                      </td>
+                      <td>{fmt(m.train_r2)}</td>
+                      <td>{fmt(m.train_rmse)}</td>
+                      <td>{fmt(m.train_mae)}</td>
+                      <td>{fmt(m.avg_r2)}</td>
+                      <td>{fmt(m.avg_rmse)}</td>
+                      <td>{fmt(m.avg_mae)}</td>
+                      <td>{m.saved_at}</td>
+                      <td>
+                        {isSelected ? (
+                          <span
+                            className="pill active"
+                            style={{ cursor: 'pointer' }}
+                            title="Click to un-select and revert to the dedicated Kalman model"
+                            onClick={() => !pending && clearMutation.mutate(parameter)}
+                          >
+                            ✓ Selected for What-If Analysis
+                          </span>
+                        ) : (
+                          <button
+                            className="chip"
+                            disabled={pending}
+                            onClick={() => selectMutation.mutate({ parameter, modelName: m.name })}
+                          >
+                            Use for What-If Analysis
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
