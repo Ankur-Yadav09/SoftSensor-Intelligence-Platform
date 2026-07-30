@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { commitMapping, getPiMapping } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import { inSectionScope } from './caseSetupHelpers'
+import { useTouchedRowIndices } from './useTouchedRowIndices'
 import { SECTION_OPTIONS } from './whatIfConstants'
 import type { PiMappingRow } from '../../api/types'
 
@@ -24,6 +25,7 @@ export function PiTagMappingEditor({ allowed, sectionOptions, onSaved }: PiTagMa
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-pi-mapping'], queryFn: getPiMapping })
   const [rows, setRows] = useState<PiMappingRow[]>([])
+  const { touched, markTouched, onRowRemoved } = useTouchedRowIndices()
 
   useEffect(() => {
     if (query.data) setRows(query.data)
@@ -43,13 +45,17 @@ export function PiTagMappingEditor({ allowed, sectionOptions, onSaved }: PiTagMa
   const sectionChoices = sectionOptions ?? SECTION_OPTIONS
   const visibleIndices = rows
     .map((_, i) => i)
-    .filter((i) => !allowed || inSectionScope(rows[i].Section, allowed, rows[i]['Generalized Description']))
+    .filter(
+      (i) =>
+        !allowed || touched.has(i) || inSectionScope(rows[i].Section, allowed, rows[i]['Generalized Description']),
+    )
   const hiddenCount = rows.length - visibleIndices.length
 
   function updateCell(index: number, field: keyof PiMappingRow, value: string) {
     const next = [...rows]
     next[index] = { ...next[index], [field]: value }
     setRows(next)
+    markTouched(index)
   }
 
   function addRow() {
@@ -58,6 +64,7 @@ export function PiTagMappingEditor({ allowed, sectionOptions, onSaved }: PiTagMa
 
   function removeRow(index: number) {
     setRows(rows.filter((_, i) => i !== index))
+    onRowRemoved(index)
   }
 
   return (

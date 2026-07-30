@@ -54,8 +54,11 @@ export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection 
   }
 
   return (
-    <div className="card" style={{ padding: '1.5rem' }}>
-      <h3 style={{ marginTop: 0 }}>🔍 Validation Filters</h3>
+    <details className="card" style={{ padding: '1.5rem' }}>
+      <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: '1.05rem' }}>
+        🔍 Validation Filters — compare this scenario against similar historical snapshots (optional)
+      </summary>
+      <div style={{ marginTop: '1rem' }}>
       {allQuery.isLoading ? (
         <p className="caption">Loading historical validation data…</p>
       ) : tags.length === 0 ? (
@@ -108,6 +111,7 @@ export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection 
           </button>
         </div>
       )}
-    </div>
+      </div>
+    </details>
   )
 }

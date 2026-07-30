@@ -3,9 +3,11 @@
 An end-to-end industrial AI platform with two modules under one React app:
 
 - **Soft Sensor Module** — upload process data, clean it, run intelligent feature selection, train a model (Denoising Autoencoder or a classic ML baseline), and evaluate predictions.
-- **What-If Studio** — simulate hypothetical process scenarios against trained Kalman soft-sensor models: override any input tag, instantly see the predicted effect on 14 KPIs and compressor power/constraint limits, and validate against historical data.
+- **What-If Studio** — configure a plant's process-flow/tag structure and predictive models, then simulate hypothetical process scenarios against them: override any input tag, instantly see the predicted effect on a config-derived set of KPIs and compressor power/constraint limits, and validate against historical data. Each predicted parameter can be driven by either a dedicated Kalman filter trained inside What-If Studio itself, or by any Soft Sensor experiment explicitly marked "Selected for What-If Analysis" — see [Key Features](#what-if-studio-details) and [`flow.md`](./flow.md) for the full detail.
 
-The FastAPI backend and React frontend are self-contained. `Scripts/` also contains a standalone legacy Streamlit **What-If Analysis** app — it is the read-only functional reference the What-If Studio module was ported from, is never imported by the backend, and is not required to run this app.
+The FastAPI backend and React frontend are self-contained. `Scripts/` also contains standalone legacy Streamlit **What-If Analysis** apps (and their generalized `_updated` counterparts) — read-only functional reference material the What-If Studio module was ported from, never imported by the backend, and not required to run this app.
+
+For the exact, screen-by-screen flow of What-If Studio (every tab, every backend call, the model-dispatch order), see **[`flow.md`](./flow.md)**. For the general codebase architecture, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ---
 
@@ -25,27 +27,28 @@ Soft_Sensor_and_What_If_Platform/
 │   └── src/
 │       ├── pages/
 │       │   ├── Overview/        # Whole-app landing page ('/')
-│       │   ├── SoftSensor/       # Soft Sensor module's own overview ('/soft-sensor-overview')
+│       │   ├── SoftSensor/       # Soft Sensor module's own overview + ExperimentHistoryPage (also reused inside What-If Studio)
 │       │   ├── Upload/, Preprocess/, FeatureSelection/, Train/, Predict/   # Soft Sensor workflow pages
-│       │   └── WhatIf/          # What-If Studio: Overview, Case Setup, Dashboard + their sub-components
+│       │   └── WhatIf/          # What-If Studio: Welcome (OverviewPage.tsx), What-If Setup (WhatIfSetupPage.tsx → SystemConfigTab/ModelConfigTab/WhatIfConfigTab), What-If Analysis (DashboardPage.tsx) + their sub-components
 │       ├── components/      # Shared UI components (tables, charts, stepper, etc.) — no UI/chart library, all hand-rolled
-│       ├── api/             # Axios client + typed API calls (one file per backend domain, incl. whatIf.ts)
-│       └── state/           # React context for active dataset/project/What-If wizard tags
+│       ├── api/             # Axios client + typed API calls (one file per backend domain, incl. whatIf.ts, overview.ts)
+│       └── state/           # React context for active dataset/project/What-If target section
 ├── src/                     # Framework-agnostic core logic (imported by the backend, no FastAPI/React/Streamlit imports)
-│   ├── data/                # SQLite dataset versioning + preprocessing pipeline
+│   ├── data/                # SQLite dataset versioning + preprocessing pipeline + model_registry + whatif_model_selection (the What-If model-selection bridge, see flow.md)
 │   ├── feature_selection/   # 12-method consensus feature selection engine
 │   ├── models/              # IndustrialDAE (PyTorch) + wrapper interfaces
 │   ├── training/            # Training loops (DAE, sklearn, LSTM, Kalman)
 │   ├── evaluation/          # RMSE / MAE / R² / MAPE metrics
 │   ├── persistence/         # Model save/load (saved_models/)
 │   ├── simulation/          # Orphaned generic sweep helper — unrelated to What-If Studio, kept for backward compatibility
-│   └── whatif/              # What-If Studio engine: config_io, historian, engine (Kalman/CoolProp/optimization pipeline), wizard, model_status
-├── Scripts/                 # Standalone legacy Streamlit What-If app — READ-ONLY reference for src/whatif/, not run by this app
-├── Data/                    # What-If Studio inputs: Config_file.xlsx, DMC_Screen_tags_data.xlsx
-├── Results/                 # What-If Studio inputs/outputs: Model/*.pkl (trained Kalman models+scalers), historian workbook
+│   └── whatif/              # What-If Studio engine: config_io (8-sheet schema), historian, engine (dependency-graph + Kalman/plugin/soft-sensor dispatch), wizard, model_status, kpi (config-derived KPI list), plants/ (physics plugin)
+├── Scripts/                 # Standalone legacy Streamlit What-If apps (and their generalized _updated versions) — READ-ONLY reference for src/whatif/, not run by this app
+├── Data/                    # What-If Studio inputs: Config_file.xlsx (8 sheets), DMC_Screen_tags_data.xlsx, MV_DV_CV taglist.xlsx
+├── Results/                 # What-If Studio inputs/outputs: Model/*.pkl (trained Kalman models+scalers), Model_accuracy_summary.csv, historian workbook
 ├── config/settings.py       # Single source of truth for paths, thresholds, hyperparameter defaults (incl. WHATIF_* paths)
 ├── docs/                    # Supplementary technical docs
 ├── sample_data/             # A sample dataset you can upload to try the Soft Sensor module end-to-end
+├── flow.md                  # Screen-by-screen, request-by-request walkthrough of the What-If Studio module
 └── requirements.txt          # Python dependencies (backend + src, incl. CoolProp/nfoursid for What-If Studio)
 ```
 
@@ -75,7 +78,7 @@ uvicorn backend.app.main:app --reload --port 8010
 ```
 
 - On first run, `dashboard.db` (SQLite) and `saved_models/` are created automatically — no manual setup needed for the Soft Sensor module.
-- **What-If Studio** needs its input files already in place: `Data/Config_file.xlsx`, `Data/DMC_Screen_tags_data.xlsx`, `Results/Model/*.pkl` (trained Kalman models + scalers), and `Results/Raw_data_plus_simulated_data.xlsx` (historian). These ship with this repo; there's no upload/train flow for them in Phase 1 — see [What-If Studio](#what-if-studio-details) below.
+- **What-If Studio** needs its input files already in place: `Data/Config_file.xlsx`, `Data/DMC_Screen_tags_data.xlsx`, `Results/Model/*.pkl` (trained Kalman models + scalers), and `Results/Raw_data_plus_simulated_data.xlsx` (historian). These ship with this repo already populated; retraining or reconfiguring them is fully wired into the UI (Model Config's Build Model / Advanced sections) — see [What-If Studio Details](#what-if-studio-details) below and [`flow.md`](./flow.md).
 - The API is served at `http://localhost:8010`, with routes under `/api/*` (e.g. `http://localhost:8010/api/health`, `/api/what-if/*`).
 - **Run this from the repo root**, not from inside `backend/` — `config.settings` and `src/whatif/paths.py` use paths relative to the repo root.
 
@@ -101,9 +104,13 @@ npm run dev
 3. Walk through **Preprocessing** → **Feature Selection** → **Train Model** → **Predict** in order — the sidebar/stepper follows this flow.
 
 **What-If Studio:**
-1. Go to **What-If Studio → Overview** for a quick orientation, then **Open Scenario Setup**.
-2. On **What-If Case Setup**, confirm the config/model status cards are green (they read the bundled `Data/`/`Results/` files), optionally run the Plant Configuration Wizard, then **Proceed to What-If Dashboard**.
-3. On **What-If Dashboard**, pick a historical timestamp, optionally override an input tag, and **Compute What-If Scenario** to see KPI deltas, the actual-vs-estimated table, and historical validation filters.
+1. Go to **What-If Studio → Welcome** — Quick Actions (Start New Case / Resume Existing Case), configuration-readiness tiles, and Resources (User Guide/FAQ/sample config download).
+2. Go to **What-If Setup**, which opens on **System Config** (Process Flow Order → PI Tag Mapping → Input Tag Configuration); saving each section auto-advances to the next.
+3. Switch to **Model Config**: its **Model Development** tab is a 5-phase, freely-revisitable workflow (Connect Data → Data Health → Model Definition → AI Feature Discovery → Build Model, reusing the Soft Sensor pages verbatim) for producing candidate models; its **Experimentation & Model Selection** tab lists every experiment grouped by Predicted Parameter — mark one "Selected for What-If Analysis" per parameter (parameters with none fall back to a dedicated Kalman filter, trainable from the "Advanced" section there).
+4. Optionally fill in **What-If Config** (Constraints, User Inputs, Results Layout — all optional).
+5. Go to **What-If Analysis**: pick a Target Section, tag source, and historical timestamp, optionally override input tags, then **Compute What-If Scenario** to see KPI deltas, the actual-vs-estimated table, and (optional) historical validation filters.
+
+See [`flow.md`](./flow.md) for the exact, detailed version of this walkthrough.
 
 ## Production build (frontend)
 
@@ -127,17 +134,23 @@ Outputs static files to `frontend/dist/`, which can be served by any static file
 
 ### What-If Studio Details
 
+- **Config-driven dependency-graph engine** — the prediction order comes from a dependency graph built off the `Model details` sheet (topologically sorted), not a hardcoded sequence; generic `Constraints`-sheet rules (`bump_linked_to_max` / `abort_if_exceeds`) replace what used to be hardcoded per-plant logic.
+- **Section scoping** — a Target Section (e.g. "PRC") scopes a run to that section and everything upstream of it in the Process Flow Order, hiding downstream parameters/tags throughout the UI.
 - **Plant Configuration Wizard** — answer a few plant line-up questions (CGC/PRC/ERC stage counts, furnace count) and the PI tag mapping is auto-generated and filtered from the master tag dictionary.
-- **Scenario simulation** — override any input tag within its safe operating range and run the full Kalman-filter/CoolProp-thermodynamics/optimization pipeline for a single historical snapshot in one call.
-- **KPI comparison** — 14 key performance indicators shown actual-vs-estimated, plus a full parameter comparison table with change highlighting.
-- **Constraint awareness** — a hard operating constraint (e.g. `CGC_5TH_STG_DISCH_PRES`) short-circuits the simulation with a clear message if tripped, exactly like the original engineering logic.
-- **Historical validation** — filter the historian by 5 validation tags to cross-check a scenario against similar past operating snapshots, and export CSV.
-- Business logic lives in `src/whatif/` — a from-scratch, Streamlit-free port of `Scripts/whatif_runner.py`'s pipeline (see that module's docstrings for what changed and why). Retraining the Kalman models (`Scripts/Model_development_and_static_whatif_testing.py`) is **not yet wired into this UI** — Phase 1 assumes the 48 `.pkl` artifacts under `Results/Model/` already exist.
+- **Model Development + Experimentation & Model Selection** — train candidate models via the reused Soft Sensor pipeline (any of DAE/Random Forest/XGBoost/LightGBM/LSTM/Kalman Filter), compare every experiment for a Predicted Parameter side-by-side, and mark one "Selected for What-If Analysis" per parameter. `src/whatif/engine.py::predict_and_update_with_soft_sensor_model()` uses it automatically during a scenario run; a parameter with no selection falls back to a dedicated Kalman filter trained from Model Config's "Advanced" section (`Scripts/Model_development_and_static_whatif_testing.py`, run as a background job).
+- **Scenario simulation** — override any input tag within its safe operating range and run the full graph (Kalman filter / Soft Sensor model / plant-physics plugin, whichever applies per parameter) for a single historical snapshot in one call.
+- **KPI comparison** — a config-derived set of key performance indicators (`src/whatif/kpi.py::derive_kpi_tags()` — every predicted + constrained parameter, plus any the plant plugin declares) shown actual-vs-estimated, plus a full parameter comparison table with change highlighting.
+- **Constraint awareness** — a hard operating constraint (e.g. `CGC_5TH_STG_DISCH_PRES`) short-circuits the simulation with a clear message if tripped, driven entirely by the `Constraints` sheet.
+- **Historical validation** — filter the historian by the same config-derived tag set to cross-check a scenario against similar past operating snapshots, and export CSV.
+- Business logic lives in `src/whatif/` — a from-scratch, Streamlit-free port of the reference Streamlit scripts' generalized pipeline (see `flow.md` and each module's docstrings for what changed and why). Config changes (Process Flow Order, PI Tag Mapping, Model Mapping, etc.) persist to `Data/Config_file.xlsx` immediately on each section's own Save action — there's no separate "commit" step required.
 
 ## Notes for whoever picks this up
 
 - `src/` has no FastAPI, React, or Streamlit imports — it's plain Python and can be tested/extended independently of any UI layer. This includes `src/whatif/`.
 - All constants (paths, thresholds, hyperparameter defaults) live in `config/settings.py` — check there before hardcoding anything, including the `WHATIF_*` path constants.
-- Long-running operations (feature selection, training) run as background jobs polled via `/api/jobs/{id}` — see `backend/app/jobs/manager.py` and the frontend's `useJobPolling` hook. What-If Studio's endpoints are all synchronous (a scenario run is fast enough not to need this).
+- Long-running operations (feature selection, training, What-If's own Kalman-model retraining) run as background jobs polled via `/api/jobs/{id}` — see `backend/app/jobs/manager.py` and the frontend's `useJobPolling` hook. What-If Studio's config/dashboard endpoints are otherwise synchronous (a scenario run is fast enough not to need this).
 - `src/simulation/what_if.py` is an older, unrelated generic sweep helper — it predates and is not used by What-If Studio; don't confuse the two when navigating the codebase.
-- `Scripts/` (the legacy Streamlit What-If app) is read-only reference material and must not be modified — it stays in sync with nothing else in this repo and is kept only so `src/whatif/` can be checked against it.
+- `Scripts/` (the legacy Streamlit What-If apps, including the `_updated` versions) is read-only reference material and must not be modified — it stays in sync with nothing else in this repo and is kept only so `src/whatif/` can be checked against it.
+- `dashboard.db`'s `whatif_model_selection` table is the **only** deliberate bridge between the Soft Sensor module's persistence (`saved_models/`, `model_registry`) and What-If Studio's (`Config_file.xlsx`, `Results/Model/*.pkl`) — see `ARCHITECTURE.md` §4 and `flow.md` for exactly how and why. Don't casually add more cross-references between the two; that bridge was added narrowly and on purpose.
+- Every What-If config section (Process Flow Order, PI Tag Mapping, Model Mapping, MV/DV/CV Tag List, Constraints, User Inputs, Column Order, Target Section) persists to `Config_file.xlsx` the moment its own "Save" action is used — each `commit_*` service function reloads the current on-disk config, swaps in just its own sheet, and rewrites the whole workbook via a shared `_write_all_sheets()` helper, so a per-section save can never clobber another section's data.
+- "Start New Case" on the Welcome page actually clears the shared `Config_file.xlsx` (all 8 sheets) after a confirmation prompt — this repo has no per-case/multi-tenant storage, so "new case" means resetting the one shared file, not creating an isolated copy. It never touches trained Kalman `.pkl` artifacts or Soft Sensor's `saved_models`/`model_registry`/`whatif_model_selection`.

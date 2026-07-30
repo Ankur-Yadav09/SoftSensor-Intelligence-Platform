@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -14,10 +14,28 @@ import {
   getSectionOrder,
   getTargetSection,
   getUserInputs,
+  saveConfig,
 } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import { StatusCard } from '../../components/StatusCard'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
+
+// "Start New Case" clears the one shared Config_file.xlsx back to blank —
+// this app has no per-case storage (ARCHITECTURE.md's file-based What-If
+// persistence model), so "new" can only mean "reset the shared file," never
+// "create an isolated blank copy." Scoped to the 8 config sheets only —
+// trained Kalman .pkl artifacts and Soft Sensor saved_models/Experiment
+// History selections are a separate persistence world and are untouched.
+const EMPTY_CONFIG_PAYLOAD = {
+  pi_mapping_rows: [],
+  model_details_rows: [],
+  constraints_rows: [],
+  user_inputs_rows: [],
+  display_order_rows: [],
+  section_order_rows: [],
+  mvdvcv_rows: [],
+  target_section: null,
+}
 
 const GUIDE_SECTIONS = [
   {
@@ -98,7 +116,8 @@ function ResourceButton({
 // resource buttons instead of being the default view.
 export function WhatIfOverviewPage() {
   const navigate = useNavigate()
-  const { targetSection } = useActiveWhatIf()
+  const queryClient = useQueryClient()
+  const { targetSection, setTargetSection, setGeneratedTags } = useActiveWhatIf()
   const [guideOpen, setGuideOpen] = useState(false)
   const [faqOpen, setFaqOpen] = useState(false)
   const guideRef = useRef<HTMLDivElement>(null)
@@ -128,8 +147,38 @@ export function WhatIfOverviewPage() {
   const hasAnyConfig = piPresent || modelPresent || processOrderReady
   const fullyReady = processOrderReady && piPresent && modelPresent && modelsReady
 
+  const resetCaseMutation = useMutation({
+    mutationFn: () => saveConfig(EMPTY_CONFIG_PAYLOAD),
+    onSuccess: () => {
+      for (const key of [
+        'whatif-config-status',
+        'whatif-models-status',
+        'whatif-pi-mapping',
+        'whatif-model-mapping',
+        'whatif-section-order',
+        'whatif-mvdvcv',
+        'whatif-constraints',
+        'whatif-user-inputs',
+        'whatif-column-order',
+        'whatif-target-section',
+        'whatif-detected-counts',
+      ]) {
+        queryClient.invalidateQueries({ queryKey: [key] })
+      }
+      setTargetSection(null)
+      setGeneratedTags([])
+      navigate('/what-if/case-setup')
+    },
+  })
+
   function startNewCase() {
-    navigate('/what-if/case-setup?fresh=1')
+    const confirmed = window.confirm(
+      'This clears the current configuration (PI Tag Mapping, Model Mapping, Constraints, User Inputs, ' +
+        'Results Layout, Section Order, MV/DV/CV Tag List, Target Section) for everyone using this app — ' +
+        'there is only one shared configuration file. Trained models and Experiment History selections are ' +
+        'not affected. Continue?',
+    )
+    if (confirmed) resetCaseMutation.mutate()
   }
 
   function resumeCase() {
@@ -199,7 +248,9 @@ export function WhatIfOverviewPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <button onClick={startNewCase}>▶ Start New Case</button>
+          <button onClick={startNewCase} disabled={resetCaseMutation.isPending}>
+            {resetCaseMutation.isPending ? 'Clearing…' : '▶ Start New Case'}
+          </button>
           <button
             className="chip"
             onClick={resumeCase}
@@ -209,6 +260,9 @@ export function WhatIfOverviewPage() {
             ⏩ Resume Existing Case
           </button>
         </div>
+        {resetCaseMutation.isError && (
+          <Callout variant="error">Could not clear the configuration. Please try again.</Callout>
+        )}
       </div>
 
       {/* Configuration status */}

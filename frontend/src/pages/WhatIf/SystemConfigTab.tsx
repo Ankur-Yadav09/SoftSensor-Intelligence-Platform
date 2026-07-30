@@ -139,6 +139,7 @@ export function SystemConfigTab({ onSaved }: SystemConfigTabProps = {}) {
         },
         {
           label: 'Input Tag Configuration (MV/DV/CV)',
+          complete: (mvdvcvQuery.data ?? []).length > 0,
           content: (
             <div>
               <p className="caption">

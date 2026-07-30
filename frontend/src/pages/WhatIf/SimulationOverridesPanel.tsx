@@ -3,6 +3,7 @@ interface SimulationOverridesPanelProps {
   limits: Record<string, { lower: number; upper: number }>
   overrides: Record<string, string>
   onChange: (tag: string, raw: string) => void
+  onReset: () => void
 }
 
 function validate(raw: string, lower: number, upper: number): string | null {
@@ -16,12 +17,35 @@ function validate(raw: string, lower: number, upper: number): string | null {
 // This is where Streamlit's st.sidebar "Simulation Overrides" panel lives in
 // the React app — placed directly above the Compute button on the Dashboard
 // page itself, since the app's actual Sidebar is reserved for top-level nav.
-export function SimulationOverridesPanel({ tags, limits, overrides, onChange }: SimulationOverridesPanelProps) {
-  if (tags.length === 0) return null
+export function SimulationOverridesPanel({ tags, limits, overrides, onChange, onReset }: SimulationOverridesPanelProps) {
+  if (tags.length === 0) {
+    return (
+      <div className="card" style={{ padding: '1.5rem' }}>
+        <h3 style={{ marginTop: 0 }}>🔧 Simulation Overrides</h3>
+        <p className="caption">Pick one or more tags in Tag Source above to override their value for this run.</p>
+      </div>
+    )
+  }
+
+  const activeCount = tags.filter((tag) => (overrides[tag] ?? '').trim() !== '').length
 
   return (
     <div className="card" style={{ padding: '1.5rem' }}>
-      <h3 style={{ marginTop: 0 }}>🔧 Simulation Overrides</h3>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <h3 style={{ marginTop: 0 }}>
+          🔧 Simulation Overrides
+          {activeCount > 0 && (
+            <span className="caption" style={{ fontWeight: 500, marginLeft: '0.5rem' }}>
+              ({activeCount} of {tags.length} active)
+            </span>
+          )}
+        </h3>
+        {activeCount > 0 && (
+          <button className="chip" onClick={onReset}>
+            ↺ Reset All
+          </button>
+        )}
+      </div>
       <p className="caption">Enter a target value to override — leave blank to keep the actual (baseline) value.</p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
@@ -34,7 +58,7 @@ export function SimulationOverridesPanel({ tags, limits, overrides, onChange }: 
               <div style={{ fontWeight: 600 }}>{tag}</div>
               <div className="caption">Boundary range: {lim.lower.toLocaleString()} → {lim.upper.toLocaleString()}</div>
               <input
-                type="text"
+                type="number"
                 value={raw}
                 placeholder="blank = keep actual"
                 onChange={(e) => onChange(tag, e.target.value)}

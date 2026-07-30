@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useState } from 'react'
 import {
   downloadBlob,
   exportFullConfig,
@@ -31,14 +30,15 @@ import { WhatIfConfigTab } from './WhatIfConfigTab'
 export function WhatIfSetupPage() {
   const queryClient = useQueryClient()
   const { targetSection } = useActiveWhatIf()
-  const [searchParams] = useSearchParams()
   const [primaryTab, setPrimaryTab] = useState(0)
-  const hasSetDefaultRef = useRef(false)
 
   const configStatusQuery = useQuery({ queryKey: ['whatif-config-status'], queryFn: getConfigStatus })
   const modelStatusQuery = useQuery({ queryKey: ['whatif-models-status'], queryFn: getModelsStatus })
   const sectionOrderQuery = useQuery({ queryKey: ['whatif-section-order'], queryFn: getSectionOrder })
   const modelMappingQuery = useQuery({ queryKey: ['whatif-model-mapping'], queryFn: getModelMapping })
+  const constraintsQuery = useQuery({ queryKey: ['whatif-constraints'], queryFn: getConstraints })
+  const userInputsQuery = useQuery({ queryKey: ['whatif-user-inputs'], queryFn: getUserInputs })
+  const columnOrderQuery = useQuery({ queryKey: ['whatif-column-order'], queryFn: getColumnOrder })
 
   const sectionOrderList = (sectionOrderQuery.data ?? []).map((r) => r.Section?.trim() ?? '').filter(Boolean)
   const distinctSectionCount = new Set(sectionOrderList.map((s) => s.toLowerCase())).size
@@ -50,23 +50,13 @@ export function WhatIfSetupPage() {
   )
   const modelConfigComplete = modelMappingComplete && !!modelStatusQuery.data?.all_present
 
-  // "Resume Existing Case" (Welcome page) links here with no query param and
-  // lands on the first incomplete section; "Start New Case" links here with
-  // ?fresh=1 and always starts at System Config regardless of what's
-  // already saved.
-  const dataReady = !sectionOrderQuery.isLoading && !configStatusQuery.isLoading && !modelStatusQuery.isLoading
-  useEffect(() => {
-    if (hasSetDefaultRef.current || !dataReady) return
-    hasSetDefaultRef.current = true
-    if (searchParams.get('fresh') === '1') {
-      setPrimaryTab(0)
-    } else if (!systemConfigComplete) {
-      setPrimaryTab(0)
-    } else if (!modelConfigComplete) {
-      setPrimaryTab(1)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataReady])
+  // What-If Config's 3 sub-sections are all optional (unlike System/Model
+  // Config, which gate on required fields) — so "complete" here means "at
+  // least one of them has been configured," not "all three."
+  const whatIfConfigComplete =
+    (constraintsQuery.data ?? []).length > 0 ||
+    (userInputsQuery.data ?? []).length > 0 ||
+    (columnOrderQuery.data ?? []).length > 0
 
   async function buildFullConfigPayload() {
     const [pi, model, secOrder, mvdvcv, constraints, userInputs, colOrder] = await Promise.all([
@@ -124,7 +114,7 @@ export function WhatIfSetupPage() {
               content: <SystemConfigTab onSaved={() => setPrimaryTab(1)} />,
             },
             { label: 'Model Config', complete: modelConfigComplete, content: <ModelConfigTab /> },
-            { label: 'What-If Config', content: <WhatIfConfigTab /> },
+            { label: 'What-If Config', complete: whatIfConfigComplete, content: <WhatIfConfigTab /> },
           ]}
         />
       </div>

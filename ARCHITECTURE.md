@@ -1,6 +1,6 @@
 # SoftSense AI — Codebase Architecture & Workflow
 
-A reference for *how the code is organized and how a request flows through it*. For setup/run instructions, see [`README.md`](./README.md).
+A reference for *how the code is organized and how a request flows through it*. For setup/run instructions, see [`README.md`](./README.md). For the exact, screen-by-screen flow of the What-If Studio module specifically, see [`flow.md`](./flow.md).
 
 ---
 
@@ -46,7 +46,7 @@ app.include_router(what_if.router, prefix="/api")
 
 - **`frontend/src/api/*.ts`** — one file per backend domain (`predict.ts`, `training.ts`, `whatIf.ts`, ...). Each is a thin, typed wrapper around the shared `apiClient` (`api/client.ts` — axios, `baseURL: '/api'`). In dev, `vite.config.ts` proxies `/api` to `http://localhost:8010`.
 - **`frontend/src/pages/<Feature>/<Feature>Page.tsx`** — a page composes: React Query `useQuery`/`useMutation` calls into the API layer, local `useState` for form/UI state, and shared components from `frontend/src/components/` (`Callout`, `DataTable`, `StatusCard`, `Tabs`, `MultiSelectDropdown`, `LineChart`/`ScatterChart`, ...) for layout.
-- **`frontend/src/state/*Context.tsx`** — the only "global" client state: small `localStorage`-backed React Contexts for the few things that must survive page navigation (active dataset, active project, the What-If wizard's generated tag list).
+- **`frontend/src/state/*Context.tsx`** — the only "global" client state: small `localStorage`-backed React Contexts for the few things that must survive page navigation (active dataset, active project, the What-If wizard's generated tag list + active Target Section).
 - **`frontend/src/layout/Sidebar.tsx`** + **`routes.tsx`** — the navigation shell. Each sidebar entry maps 1:1 to a route.
 
 **Notable constraint:** no UI component library (no MUI/AntD/Tailwind) and no charting library. Everything is hand-rolled CSS (`theme.css`, CSS custom properties) and custom SVG chart components. New pages should follow this convention rather than introducing a library.
@@ -57,14 +57,16 @@ app.include_router(what_if.router, prefix="/api")
 
 | | **Soft Sensor Module** | **What-If Studio** |
 |---|---|---|
-| Sidebar flow | Connect Data → Data Health → Feature Discovery → Build Model → Prediction | Overview → What-If Case Setup → What-If Dashboard |
-| Frontend pages | `pages/Upload/`, `Preprocess/`, `FeatureSelection/`, `Train/`, `Predict/` | `pages/WhatIf/` |
-| Backend routes | `datasets.py`, `preprocess.py`, `feature_selection.py`, `training.py`, `predict.py` | `what_if.py` |
-| Core `src/` logic | `src/data/`, `src/feature_selection/`, `src/training/`, `src/models/`, `src/evaluation/` | `src/whatif/` (`config_io.py`, `historian.py`, `engine.py`, `wizard.py`, `model_status.py`) |
-| Persistence | `dashboard.db` (SQLite) + `saved_models/` (pickled models/scalers) | `Data/Config_file.xlsx`, `Results/Model/*.pkl`, `Results/Raw_data_plus_simulated_data.xlsx` — a separate, file-based world, deliberately not merged into `dashboard.db` |
-| Reference implementation | — (built directly against this architecture) | `Scripts/whatif_runner.py` + `Scripts/Whatif_streamlit_dashboard.py` — a **read-only** legacy Streamlit app `src/whatif/` was ported from. Never imported, never modified. |
+| Sidebar flow | Connect Data → Data Health → Feature Discovery → Build Model → Prediction | Welcome → What-If Setup (System Config / Model Config / What-If Config) → What-If Analysis |
+| Frontend pages | `pages/Upload/`, `Preprocess/`, `FeatureSelection/`, `Train/`, `Predict/` | `pages/WhatIf/` — `WhatIfSetupPage.tsx` hosts 3 top-level tabs: `SystemConfigTab.tsx` (Process Flow Order / PI Tag Mapping / Input Tag Configuration), `ModelConfigTab.tsx` (Model Development's 5-phase stepper — Connect Data/Data Health/Model Definition/AI Feature Discovery/Build Model, reusing the Soft Sensor pages verbatim — plus Experimentation & Model Selection), `WhatIfConfigTab.tsx` (Constraints/User Inputs/Results Layout). `DashboardPage.tsx` is the single flowing "What-If Analysis" page. |
+| Backend routes | `datasets.py`, `preprocess.py`, `feature_selection.py`, `training.py`, `predict.py` | `what_if.py` — config CRUD (8 sheets), wizard, training-data upload, model training/status, dashboard compute/validation |
+| Core `src/` logic | `src/data/`, `src/feature_selection/`, `src/training/`, `src/models/`, `src/evaluation/` | `src/whatif/` (`config_io.py`, `historian.py`, `engine.py`, `wizard.py`, `model_status.py`, `kpi.py`, `plants/` — the plant-specific physics plugin package) |
+| Persistence | `dashboard.db` (SQLite) + `saved_models/` (pickled models/scalers) | `Data/Config_file.xlsx` (8 sheets), `Results/Model/*.pkl`, `Results/Raw_data_plus_simulated_data.xlsx` — a separate, file-based world, deliberately **mostly** kept apart from `dashboard.db` (see the one narrow bridge below) |
+| Reference implementation | — (built directly against this architecture) | `Scripts/whatif_runner.py`/`Whatif_streamlit_dashboard.py` and their `_updated` counterparts — **read-only** legacy Streamlit apps `src/whatif/` was ported from (the generalized dependency-graph engine and 8-sheet config schema came from the `_updated` versions). Never imported, never modified. |
 
 Both modules use the exact same routes→schemas→services→src backend layering and the exact same page→api→component frontend layering described above — once you understand one, you understand the shape of the other.
+
+**The one deliberate bridge between the two persistence worlds:** Experiment History (`frontend/src/pages/SoftSensor/ExperimentHistoryPage.tsx`, reused inside Model Config's "Experimentation & Model Selection" tab) lets a user mark one Soft Sensor experiment (from `dashboard.db`'s `model_registry` / `saved_models/`) as **"Selected for What-If Analysis"** for a given Predicted Parameter. That selection is recorded in a new `dashboard.db` table, `whatif_model_selection(parameter TEXT PRIMARY KEY, model_name, selected_at)`. `src/whatif/engine.py::predict_and_update_with_soft_sensor_model()` checks this table before falling back to the dedicated Kalman filter for that parameter — see §5/`flow.md` for the exact dispatch order. This is intentionally the *only* place the two worlds touch; everything else about the two modules' storage stays fully separate.
 
 ---
 
@@ -73,13 +75,13 @@ Both modules use the exact same routes→schemas→services→src backend layeri
 **What-If Studio's "Compute What-If Scenario" button:**
 
 1. User clicks the button in `frontend/src/pages/WhatIf/DashboardPage.tsx` → calls `runScenario()` from `frontend/src/api/whatIf.ts`.
-2. Axios POSTs to `/api/what-if/dashboard/compute` with a `WhatIfScenarioRequest` body (timestamp + overrides).
+2. Axios POSTs to `/api/what-if/dashboard/compute` with a `WhatIfScenarioRequest` body (timestamp + overrides + `target_section`).
 3. `backend/app/api/routes/what_if.py`'s `dashboard_compute()` route receives it, validated by the `schemas/what_if.py` Pydantic model, and calls `what_if_service.run_scenario(...)` — nothing else.
-4. `backend/app/services/what_if_service.py` loads the historian and config (both cached in-process, keyed by file mtime, since the historian Excel file is expensive to parse) and calls `src/whatif/engine.py`'s `whatif_analysis()` — the actual Kalman-filter / CoolProp-thermodynamics / scipy-optimization pipeline. This function has no idea an HTTP request exists.
-5. The service reshapes the returned `WhatIfResult` dataclass into a `WhatIfScenarioResponse` (rows + KPIs + constraint-hit flag); the route serializes it to JSON.
-6. Back in `DashboardPage.tsx`, the `useMutation` resolves, and `KpiCardsRow`, `ActualVsEstimatedTable`, and `ValidationFiltersPanel` re-render with the new data.
+4. `backend/app/services/what_if_service.py` loads the historian and config (both cached in-process, keyed by file mtime, since the historian Excel file is expensive to parse) and calls `src/whatif/engine.py`'s `whatif_analysis()` — this function has no idea an HTTP request exists. It builds a dependency graph from the `Model details` sheet, walks it in topological order, and for every predicted parameter tries, in order: (a) a plant-plugin simulation function if the parameter is plugin-owned/first-principle, (b) a Soft-Sensor experiment marked "Selected for What-If Analysis" for that parameter (`predict_and_update_with_soft_sensor_model()`, the bridge described in §4), (c) the dedicated Kalman filter (`predict_and_update_with_kalman()`), (d) otherwise the baseline value is kept — with generic `Constraints`-sheet rules (bump/abort) and plugin hooks applied around each step. See `flow.md` for the exact per-parameter dispatch order and every file involved.
+5. The service reshapes the returned `WhatIfResult` dataclass into a `WhatIfScenarioResponse` (rows + KPIs, the KPI tag list itself derived live via `src/whatif/kpi.py::derive_kpi_tags()` + constraint-hit flag); the route serializes it to JSON.
+6. Back in `DashboardPage.tsx`, the `useMutation` resolves, the page auto-scrolls to the results, and `KpiCardsRow`, `ActualVsEstimatedTable`, and `ValidationFiltersPanel` re-render with the new data.
 
-Use this as a template: any other flow (upload a dataset, submit a training job, generate a PI mapping) follows the same six-step shape with different files at each step.
+Use this as a template: any other flow (upload a dataset, submit a training job, generate a PI mapping) follows the same six-step shape with different files at each step. For the full, module-specific walkthrough of every screen and persistence path in What-If Studio, see **`flow.md`**.
 
 ---
 
@@ -104,10 +106,11 @@ frontend/src/
 
 src/
 ├── data/, feature_selection/, training/, models/, evaluation/, persistence/   # Soft Sensor logic
-├── whatif/                # What-If Studio logic
+├── whatif/                # What-If Studio logic (config_io, historian, engine, wizard, model_status, kpi)
+│   └── plants/            # Plant-specific physics plugin (yanpet_olf1_formulas.py) — see engine.py's plugin contract
 └── simulation/what_if.py  # unrelated orphaned helper — not used by What-If Studio
 
 config/settings.py         # single source of truth for all paths/thresholds/defaults
 ```
 
-For the fully-annotated setup-oriented version of this tree (with install/run commands), see the **Project Structure** section of [`README.md`](./README.md).
+For the fully-annotated setup-oriented version of this tree (with install/run commands), see the **Project Structure** section of [`README.md`](./README.md). For a complete, screen-by-screen walkthrough of What-If Studio specifically, see [`flow.md`](./flow.md).

@@ -3,11 +3,29 @@ import { useEffect, useState } from 'react'
 import { commitModelMapping, getModelMapping } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import { inSectionScope, modelInputOptionsForSection } from './caseSetupHelpers'
+import { useTouchedRowIndices } from './useTouchedRowIndices'
 import { SECTION_OPTIONS } from './whatIfConstants'
 import type { ModelDetailsRow, MvDvCvTagRow, PiMappingRow } from '../../api/types'
 
 const INPUT_COLS = Array.from({ length: 8 }, (_, i) => `Input parameter_${i + 1}`)
 const STICKY_COL_WIDTH = 200
+
+// The highest input-column index actually filled in across every row (at
+// least 1) — so a workbook that already has, say, 5 input tags saved never
+// has those columns hidden, even though new/blank rows start collapsed to
+// just "In 1".
+function maxFilledInputIndex(rows: ModelDetailsRow[]): number {
+  let max = 1
+  for (const row of rows) {
+    for (let i = INPUT_COLS.length; i >= 1; i--) {
+      if ((row[INPUT_COLS[i - 1]] ?? '').toString().trim()) {
+        max = Math.max(max, i)
+        break
+      }
+    }
+  }
+  return max
+}
 
 interface ModelMappingEditorProps {
   /** Restricts which rows are shown/editable to those in-scope. Omit for
@@ -33,9 +51,17 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-model-mapping'], queryFn: getModelMapping })
   const [rows, setRows] = useState<ModelDetailsRow[]>([])
+  const { touched, markTouched, onRowRemoved } = useTouchedRowIndices()
+  // Starts at just "In 1" — most predicted parameters don't need all 8 input
+  // slots, so showing them empty by default is just clutter. "+ Add Input"
+  // reveals one more column at a time, up to 8.
+  const [visibleInputCount, setVisibleInputCount] = useState(1)
 
   useEffect(() => {
-    if (query.data) setRows(query.data.rows)
+    if (query.data) {
+      setRows(query.data.rows)
+      setVisibleInputCount((prev) => Math.max(prev, maxFilledInputIndex(query.data.rows)))
+    }
   }, [query.data])
 
   const commitMutation = useMutation({
@@ -47,7 +73,6 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
   })
 
   if (query.isLoading) return <p className="caption">Loading model mapping…</p>
-  if (rows.length === 0) return <p className="caption">No "Model details" sheet found in the config workbook.</p>
 
   const fallbackOptions = query.data?.historian_tags ?? []
   function inputOptionsForRow(row: ModelDetailsRow): string[] {
@@ -55,16 +80,20 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
     return modelInputOptionsForSection(piRows, mvdvcvRows ?? [], row.Section)
   }
   const sectionChoices = sectionOptions ?? SECTION_OPTIONS
+  const visibleInputCols = INPUT_COLS.slice(0, visibleInputCount)
 
   const visibleIndices = rows
     .map((_, i) => i)
-    .filter((i) => !allowed || inSectionScope(rows[i].Section, allowed, rows[i]['Predicted parameter']))
+    .filter(
+      (i) => !allowed || touched.has(i) || inSectionScope(rows[i].Section, allowed, rows[i]['Predicted parameter']),
+    )
   const hiddenCount = rows.length - visibleIndices.length
 
   function updateCell(index: number, col: string, value: string) {
     const next = [...rows]
     next[index] = { ...next[index], [col]: value }
     setRows(next)
+    markTouched(index)
   }
 
   function addRow() {
@@ -73,6 +102,7 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
 
   function removeRow(index: number) {
     setRows(rows.filter((_, i) => i !== index))
+    onRowRemoved(index)
   }
 
   return (
@@ -82,6 +112,9 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
         "Predicted parameter" stays pinned on the left; input dropdowns list MV/DV/CV tags first, then the remaining
         scoped PI tags.
       </p>
+      {rows.length === 0 && (
+        <Callout variant="info">No predicted parameters yet — click "+ Add Parameter" below to add one.</Callout>
+      )}
       <div className="data-table-scroll" style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
         <table className="table-compact">
           <thead>
@@ -90,7 +123,7 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
                 Predicted parameter
               </th>
               <th>Section</th>
-              {INPUT_COLS.map((c, i) => (
+              {visibleInputCols.map((c, i) => (
                 <th key={c} title={c}>
                   In {i + 1}
                 </th>
@@ -124,7 +157,7 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
                     ))}
                   </select>
                 </td>
-                {INPUT_COLS.map((c) => (
+                {visibleInputCols.map((c) => (
                   <td key={c}>
                     <select
                       value={rows[i][c] ?? ''}
@@ -160,6 +193,11 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
         <button className="chip" onClick={addRow}>
           + Add Parameter
         </button>
+        {visibleInputCount < INPUT_COLS.length && (
+          <button className="chip" onClick={() => setVisibleInputCount((n) => Math.min(INPUT_COLS.length, n + 1))}>
+            + Add Input (In {visibleInputCount + 1})
+          </button>
+        )}
         <button onClick={() => commitMutation.mutate(rows)}>💾 Save Model Mapping</button>
       </div>
       {commitMutation.isSuccess && (

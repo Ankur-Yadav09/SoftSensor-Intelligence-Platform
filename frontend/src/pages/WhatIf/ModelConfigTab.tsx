@@ -112,6 +112,7 @@ export function ModelConfigTab() {
       tabs={[
         {
           label: 'Model Development',
+          complete: modelMappingComplete,
           content: (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               <ModelDevelopmentStepper current={devPhase} onSelect={setDevPhase} />
@@ -121,6 +122,7 @@ export function ModelConfigTab() {
         },
         {
           label: 'Experimentation & Model Selection',
+          complete: !!modelStatusQuery.data?.all_present,
           content: (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               <ExperimentHistoryPage />

@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getConfigStatus, getModelsStatus, getTagOptions, runScenario } from '../../api/whatIf'
 import { extractErrorMessage } from '../../api/errors'
@@ -62,6 +62,14 @@ export function DashboardPage() {
   }, [overrides, tagOptionsQuery.data])
 
   const scenarioMutation = useMutation({ mutationFn: runScenario })
+  const resultsRef = useRef<HTMLDivElement>(null)
+
+  // Results land well below the Compute button — jump to them automatically
+  // instead of leaving the user to notice and scroll down themselves (same
+  // reasoning as the Welcome page's User Guide/FAQ auto-scroll).
+  useEffect(() => {
+    if (scenarioMutation.data) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [scenarioMutation.data])
 
   if (configStatusQuery.isLoading || modelStatusQuery.isLoading) {
     return <p className="caption">Checking What-If setup status…</p>
@@ -91,14 +99,17 @@ export function DashboardPage() {
       <h1>What-If Analysis</h1>
 
       <div className="card" style={{ padding: '1.5rem' }}>
+        <h3 style={{ marginTop: 0 }}>🎯 Target Section</h3>
         <TargetSectionSelector value={targetSection} onChange={setTargetSection} />
       </div>
 
       <div className="card" style={{ padding: '1.5rem' }}>
+        <h3 style={{ marginTop: 0 }}>🏷️ Tag Source</h3>
         <TagSourcePanel tagOptions={tagOptionsQuery.data} selectedTags={manualTags} onChange={setManualTags} />
       </div>
 
       <div className="card" style={{ padding: '1.5rem' }}>
+        <h3 style={{ marginTop: 0 }}>🕐 Timestamp &amp; Baseline</h3>
         <TimestampSelector
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
@@ -115,14 +126,18 @@ export function DashboardPage() {
         limits={tagOptionsQuery.data?.limits ?? {}}
         overrides={overrides}
         onChange={(tag, raw) => setOverrides({ ...overrides, [tag]: raw })}
+        onReset={() => setOverrides({})}
       />
 
       <div className="card" style={{ padding: '1.5rem' }}>
-        <button disabled={!selectedTimestamp || scenarioMutation.isPending} onClick={runCompute}>
-          {scenarioMutation.isPending
-            ? 'Processing…'
-            : `🚀 Compute What-If Scenario (${nOverrides} override${nOverrides === 1 ? '' : 's'} active)`}
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button disabled={!selectedTimestamp || scenarioMutation.isPending} onClick={runCompute}>
+            {scenarioMutation.isPending
+              ? 'Processing…'
+              : `🚀 Compute What-If Scenario (${nOverrides} override${nOverrides === 1 ? '' : 's'} active)`}
+          </button>
+          {!selectedTimestamp && <span className="caption">Pick a Process Snapshot Timestamp above first.</span>}
+        </div>
         {scenarioMutation.isError && (
           <div style={{ marginTop: '0.75rem' }}>
             <Callout variant="error">{extractErrorMessage(scenarioMutation.error, 'What-if analysis failed.')}</Callout>
@@ -131,7 +146,7 @@ export function DashboardPage() {
       </div>
 
       {scenarioMutation.data && (
-        <>
+        <div ref={resultsRef} style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
           {scenarioMutation.data.constraint_hit && (
             <Callout variant="warning">{scenarioMutation.data.constraint_message}</Callout>
           )}
@@ -144,7 +159,7 @@ export function DashboardPage() {
             scenarioRows={scenarioMutation.data.rows}
             targetSection={targetSection}
           />
-        </>
+        </div>
       )}
     </div>
   )

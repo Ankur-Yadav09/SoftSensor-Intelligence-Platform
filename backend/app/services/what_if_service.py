@@ -234,15 +234,18 @@ def generate_mapping(body: schemas.GenerateMappingRequest) -> schemas.GenerateMa
 
 
 def commit_mapping(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
-    """Stateless in Phase 1: validates/normalizes and echoes the edited grid
-    back. There's no server-side session to persist into — the client carries
-    the committed rows forward to whichever endpoint needs them next (e.g.
-    config/export)."""
+    """Validates/normalizes the edited PI mapping grid and persists it to
+    Config_file.xlsx immediately (the other 7 sheets are carried forward
+    unchanged from the current on-disk config -- see _cfg_rows())."""
     df = pd.DataFrame(body.rows)
-    if df.empty:
-        return schemas.RowsResponse(rows=[])
-    normalized = wizard.normalize_pi_df(df)
-    return schemas.RowsResponse(rows=json.loads(normalized.to_json(orient="records")) if not normalized.empty else [])
+    normalized = wizard.normalize_pi_df(df) if not df.empty else df
+    rows = json.loads(normalized.to_json(orient="records")) if not normalized.empty else []
+
+    cfg = _load_config()
+    payload = _cfg_rows(cfg)
+    payload["pi_mapping_rows"] = rows
+    _write_all_sheets(**payload)
+    return schemas.RowsResponse(rows=rows)
 
 
 def get_model_mapping() -> schemas.ModelMappingResponse:
@@ -255,6 +258,10 @@ def get_model_mapping() -> schemas.ModelMappingResponse:
 
 
 def commit_model_mapping(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    cfg = _load_config()
+    payload = _cfg_rows(cfg)
+    payload["model_details_rows"] = body.rows
+    _write_all_sheets(**payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
@@ -273,6 +280,10 @@ def get_section_order() -> schemas.RowsResponse:
 
 
 def commit_section_order(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    cfg = _load_config()
+    payload = _cfg_rows(cfg)
+    payload["section_order_rows"] = body.rows
+    _write_all_sheets(**payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
@@ -283,6 +294,10 @@ def get_mvdvcv_taglist() -> schemas.RowsResponse:
 
 
 def commit_mvdvcv_taglist(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    cfg = _load_config()
+    payload = _cfg_rows(cfg)
+    payload["mvdvcv_rows"] = body.rows
+    _write_all_sheets(**payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
@@ -293,6 +308,10 @@ def get_constraints() -> schemas.RowsResponse:
 
 
 def commit_constraints(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    cfg = _load_config()
+    payload = _cfg_rows(cfg)
+    payload["constraints_rows"] = body.rows
+    _write_all_sheets(**payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
@@ -303,6 +322,10 @@ def get_user_inputs() -> schemas.RowsResponse:
 
 
 def commit_user_inputs(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    cfg = _load_config()
+    payload = _cfg_rows(cfg)
+    payload["user_inputs_rows"] = body.rows
+    _write_all_sheets(**payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
@@ -313,6 +336,10 @@ def get_column_order() -> schemas.RowsResponse:
 
 
 def commit_column_order(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+    cfg = _load_config()
+    payload = _cfg_rows(cfg)
+    payload["display_order_rows"] = body.rows
+    _write_all_sheets(**payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
@@ -331,28 +358,67 @@ def get_target_section() -> schemas.TargetSectionResponse:
 
 
 def set_target_section(body: schemas.TargetSectionRequest) -> schemas.TargetSectionResponse:
-    """Stateless like every other config endpoint here: doesn't persist by
-    itself. The Dashboard/Case Setup hold the chosen target_section
-    client-side and pass it explicitly to compute/tag-options/validation-
-    filter; use config/save to persist it into Config_file.xlsx."""
+    """Persists the chosen target_section into Config_file.xlsx immediately
+    (the other 7 sheets are carried forward unchanged). The Dashboard/Case
+    Setup also hold it client-side (ActiveWhatIfContext) and pass it
+    explicitly to compute/tag-options/validation-filter for the current
+    session, independent of what's saved here."""
     cfg = _load_config()
+    payload = _cfg_rows(cfg)
+    payload["target_section"] = body.target_section
+    _write_all_sheets(**payload)
     return _target_section_response(cfg.section_order_list(), body.target_section)
 
 
-def save_config(body: schemas.ConfigSaveRequest) -> schemas.ConfigStatusResponse:
-    """Writes all 8 sheets to Config_file.xlsx in one call -- the wizard's
-    primary persistence path, replacing the download-then-reupload round trip
-    export_config()/upload_config() otherwise requires."""
+def _rows_to_df(rows: list, columns: list) -> pd.DataFrame:
+    """pd.DataFrame(rows) on an empty list produces a DataFrame with zero
+    columns, not just zero rows -- which then trips up any downstream
+    consumer checking for a named column (e.g. "Section" in df.columns).
+    Falls back to the sheet's known column set so a fully-cleared sheet
+    (e.g. resetting to a blank case) still round-trips through
+    config_io.load_all_config() cleanly."""
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=columns)
+
+
+def _write_all_sheets(
+    pi_mapping_rows: list,
+    model_details_rows: list,
+    constraints_rows: list,
+    user_inputs_rows: list,
+    display_order_rows: list,
+    section_order_rows: list,
+    mvdvcv_rows: list,
+    target_section: str | None,
+) -> None:
+    """Writes all 8 sheets to Config_file.xlsx in one call -- shared by
+    save_config() (all 8 sheets from the client at once) and every
+    commit_X() below (only its own sheet changes; the other 7 are the
+    current on-disk values, passed straight through so a per-section save
+    can't clobber anything else)."""
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        pd.DataFrame(body.pi_mapping_rows).to_excel(writer, sheet_name="PI_generalised_Name", index=False)
-        pd.DataFrame(body.model_details_rows).to_excel(writer, sheet_name="Model details", index=False)
-        pd.DataFrame(body.constraints_rows).to_excel(writer, sheet_name="Constraints", index=False)
-        pd.DataFrame(body.user_inputs_rows).to_excel(writer, sheet_name="user inputs", index=False)
-        pd.DataFrame(body.display_order_rows).to_excel(writer, sheet_name="display_column_order", index=False)
-        pd.DataFrame(body.section_order_rows).to_excel(writer, sheet_name="Section Order", index=False)
-        pd.DataFrame(body.mvdvcv_rows).to_excel(writer, sheet_name="MV_DV_CV_taglist", index=False)
-        pd.DataFrame({"Target Section": [body.target_section or ""]}).to_excel(
+        _rows_to_df(pi_mapping_rows, config_io.PI_COLUMNS).to_excel(
+            writer, sheet_name="PI_generalised_Name", index=False
+        )
+        _rows_to_df(model_details_rows, config_io.MODEL_DETAILS_COLUMNS).to_excel(
+            writer, sheet_name="Model details", index=False
+        )
+        _rows_to_df(constraints_rows, config_io.CONSTRAINTS_COLUMNS).to_excel(
+            writer, sheet_name="Constraints", index=False
+        )
+        _rows_to_df(user_inputs_rows, config_io.USER_INPUTS_COLUMNS).to_excel(
+            writer, sheet_name="user inputs", index=False
+        )
+        _rows_to_df(display_order_rows, config_io.DISPLAY_ORDER_COLUMNS).to_excel(
+            writer, sheet_name="display_column_order", index=False
+        )
+        _rows_to_df(section_order_rows, config_io.SECTION_ORDER_COLUMNS).to_excel(
+            writer, sheet_name="Section Order", index=False
+        )
+        _rows_to_df(mvdvcv_rows, config_io.MVDVCV_COLUMNS).to_excel(
+            writer, sheet_name="MV_DV_CV_taglist", index=False
+        )
+        pd.DataFrame({"Target Section": [target_section or ""]}).to_excel(
             writer, sheet_name="Target Section", index=False
         )
 
@@ -367,6 +433,43 @@ def save_config(body: schemas.ConfigSaveRequest) -> schemas.ConfigStatusResponse
                 "storage — close it and try again."
             ),
         )
+
+
+def _cfg_rows(cfg: WhatIfConfig) -> Dict[str, Any]:
+    """Every sheet's current on-disk rows, in the exact shape each get_X()
+    above already returns them -- used by commit_X() below to carry the 7
+    untouched sheets forward unchanged while only the one being edited
+    changes."""
+    def _rows(df: pd.DataFrame) -> list:
+        return json.loads(df.to_json(orient="records")) if not df.empty else []
+
+    pi_normalized = wizard.normalize_pi_df(cfg.pi_names_df)
+    return {
+        "pi_mapping_rows": _rows(pi_normalized),
+        "model_details_rows": _rows(cfg.model_details_df),
+        "constraints_rows": _rows(cfg.constraints_df),
+        "user_inputs_rows": _rows(cfg.user_inputs_df),
+        "display_order_rows": _rows(cfg.display_order_df),
+        "section_order_rows": _rows(cfg.section_order_df),
+        "mvdvcv_rows": _rows(cfg.mvdvcv_df),
+        "target_section": cfg.target_section,
+    }
+
+
+def save_config(body: schemas.ConfigSaveRequest) -> schemas.ConfigStatusResponse:
+    """Writes all 8 sheets to Config_file.xlsx in one call -- the wizard's
+    primary persistence path, replacing the download-then-reupload round trip
+    export_config()/upload_config() otherwise requires."""
+    _write_all_sheets(
+        pi_mapping_rows=body.pi_mapping_rows,
+        model_details_rows=body.model_details_rows,
+        constraints_rows=body.constraints_rows,
+        user_inputs_rows=body.user_inputs_rows,
+        display_order_rows=body.display_order_rows,
+        section_order_rows=body.section_order_rows,
+        mvdvcv_rows=body.mvdvcv_rows,
+        target_section=body.target_section,
+    )
     return get_config_status()
 
 
