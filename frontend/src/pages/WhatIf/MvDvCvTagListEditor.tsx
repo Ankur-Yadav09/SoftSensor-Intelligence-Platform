@@ -4,14 +4,19 @@ import { commitMvDvCvTaglist, getMvDvCvTaglist } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import { inSectionScope } from './caseSetupHelpers'
 import { useTouchedRowIndices } from './useTouchedRowIndices'
+import { SECTION_OPTIONS } from './whatIfConstants'
 import type { MvDvCvTagRow } from '../../api/types'
 
-const FIELDS: (keyof MvDvCvTagRow)[] = ['Name', 'GeneralizedDescription', 'Section', 'Type']
+const TYPE_OPTIONS = ['', 'Independent', 'Dependent']
 
 interface MvDvCvTagListEditorProps {
   /** Restricts which rows are shown/editable to those in-scope. Omit for
    * the unscoped, full-list view used outside the wizard. */
   allowed?: Set<string>
+  /** Section dropdown options — normally the Process Flow Order list (so
+   * this tab's Section picks stay in sync with the Target Section the user
+   * chose there). Falls back to the generic section list when omitted. */
+  sectionOptions?: string[]
   /** Called after a successful save — this is System Config's last sub-tab,
    * so the parent uses this to advance to the next top-level section
    * (Model Config) instead of leaving the user to click over themselves. */
@@ -21,7 +26,7 @@ interface MvDvCvTagListEditorProps {
 // Editor for the optional MV/DV/CV Tag List — a prioritized, plant-engineer
 // curated input-tag source. When present, Model Mapping's input dropdowns
 // list these tags before the remaining PI tags.
-export function MvDvCvTagListEditor({ allowed, onSaved }: MvDvCvTagListEditorProps) {
+export function MvDvCvTagListEditor({ allowed, sectionOptions, onSaved }: MvDvCvTagListEditorProps) {
   const queryClient = useQueryClient()
   const query = useQuery({ queryKey: ['whatif-mvdvcv'], queryFn: getMvDvCvTaglist })
   const [rows, setRows] = useState<MvDvCvTagRow[]>([])
@@ -41,6 +46,14 @@ export function MvDvCvTagListEditor({ allowed, onSaved }: MvDvCvTagListEditorPro
   })
 
   if (query.isLoading) return <p className="caption">Loading MV/DV/CV tag list…</p>
+
+  const sectionChoices = sectionOptions ?? SECTION_OPTIONS
+  // Include any value already saved in the sheet that isn't one of the known
+  // options (e.g. a stray legacy entry) so it stays visible/selected instead
+  // of silently reverting to blank the moment this dropdown renders.
+  const typeChoices = Array.from(
+    new Set([...TYPE_OPTIONS, ...rows.map((r) => r.Type).filter((t): t is string => !!t)]),
+  )
 
   const visibleIndices = rows
     .map((_, i) => i)
@@ -75,25 +88,58 @@ export function MvDvCvTagListEditor({ allowed, onSaved }: MvDvCvTagListEditorPro
         <table className="table-compact">
           <thead>
             <tr>
-              {FIELDS.map((f) => (
-                <th key={f}>{f}</th>
-              ))}
+              <th>Name</th>
+              <th>GeneralizedDescription</th>
+              <th>Section</th>
+              <th>Type</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {visibleIndices.map((i) => (
               <tr key={i}>
-                {FIELDS.map((f) => (
-                  <td key={f}>
-                    <input
-                      type="text"
-                      value={rows[i][f] ?? ''}
-                      onChange={(e) => updateCell(i, f, e.target.value)}
-                      style={{ width: 180 }}
-                    />
-                  </td>
-                ))}
+                <td>
+                  <input
+                    type="text"
+                    value={rows[i].Name ?? ''}
+                    onChange={(e) => updateCell(i, 'Name', e.target.value)}
+                    style={{ width: 180 }}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    value={rows[i].GeneralizedDescription ?? ''}
+                    onChange={(e) => updateCell(i, 'GeneralizedDescription', e.target.value)}
+                    style={{ width: 220 }}
+                  />
+                </td>
+                <td>
+                  <select
+                    value={rows[i].Section ?? ''}
+                    onChange={(e) => updateCell(i, 'Section', e.target.value)}
+                    style={{ width: 130 }}
+                  >
+                    {sectionChoices.map((s) => (
+                      <option key={s} value={s}>
+                        {s || '—'}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <select
+                    value={rows[i].Type ?? ''}
+                    onChange={(e) => updateCell(i, 'Type', e.target.value)}
+                    style={{ width: 130 }}
+                  >
+                    {typeChoices.map((t) => (
+                      <option key={t} value={t}>
+                        {t || '—'}
+                      </option>
+                    ))}
+                  </select>
+                </td>
                 <td>
                   <button className="chip" onClick={() => removeRow(i)}>
                     Remove

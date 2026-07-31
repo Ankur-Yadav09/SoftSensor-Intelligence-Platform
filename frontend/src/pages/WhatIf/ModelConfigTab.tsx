@@ -88,6 +88,7 @@ export function ModelConfigTab() {
           piRows={piRows}
           mvdvcvRows={mvdvcvRows}
           sectionOptions={['', ...sectionOrderList]}
+          sectionOrder={sectionOrderList}
         />
         <button style={{ marginTop: '1.25rem' }} onClick={() => setDevPhase('discovery')}>
           Continue to AI Feature Discovery →

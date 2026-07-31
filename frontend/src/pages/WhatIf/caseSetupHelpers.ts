@@ -78,34 +78,56 @@ export function mvdvcvTagNames(mvdvcvRows: MvDvCvTagRow[], allowed: Set<string>)
   )
 }
 
-/** Model Mapping's input-tag dropdown options: MV/DV/CV tags first (highest
- * priority), then every remaining scoped PI tag. */
-export function modelInputOptions(piRows: PiMappingRow[], mvdvcvRows: MvDvCvTagRow[], allowed: Set<string>): string[] {
-  const mvTags = mvdvcvTagNames(mvdvcvRows, allowed)
+/** Every MV/DV/CV + PI tag name, completely unfiltered — MV/DV/CV tags
+ * first (list order preserved), then every remaining PI tag. The baseline
+ * "nothing hidden" list that modelInputOptionsForSection() below reorders
+ * but never subtracts from. */
+function allTagNames(piRows: PiMappingRow[], mvdvcvRows: MvDvCvTagRow[]): string[] {
+  const mvTags = dedupe(mvdvcvRows.map((r) => r.GeneralizedDescription).filter(Boolean))
   const mvLower = new Set(mvTags.map((t) => t.toLowerCase()))
-  const other = scopedTagOptions(piRows, allowed).filter((t) => !mvLower.has(t.toLowerCase()))
+  const other = dedupe(piRows.map((r) => r['Generalized Description']).filter(Boolean)).filter(
+    (t) => !mvLower.has(t.toLowerCase()),
+  )
   return [...mvTags, ...other]
 }
 
-/** Model Mapping's per-row input-tag dropdown options: when the row has its
- * own Section chosen, only tags belonging to that exact section (MV/DV/CV
- * first, then PI); with no Section chosen, the complete unfiltered tag list
- * (every MV/DV/CV and PI tag, regardless of section). */
+/** Model Mapping's per-row input-tag dropdown options: MV/DV/CV tags whose
+ * own Section matches the row's chosen Section (or is upstream of it, per
+ * the process-flow order — a PRC parameter legitimately depends on a CGC
+ * tag, since CGC feeds into PRC) are bumped to the top of the list as the
+ * prioritized/recommended choices. Every other tag — MV/DV/CV or PI, any
+ * section — still follows afterward; nothing is ever hidden, only reordered
+ * (an earlier version filtered non-matching tags out entirely, which made
+ * already-saved cross-section values render as an inexplicable blank
+ * selection). With no Section chosen, there's nothing to prioritize, so
+ * it's just the complete list in its natural order. */
 export function modelInputOptionsForSection(
   piRows: PiMappingRow[],
   mvdvcvRows: MvDvCvTagRow[],
   section: string | undefined,
+  sectionOrder: string[] = [],
 ): string[] {
+  const all = allTagNames(piRows, mvdvcvRows)
   const sec = (section ?? '').trim()
-  if (!sec) {
-    const mvTags = dedupe(mvdvcvRows.map((r) => r.GeneralizedDescription).filter(Boolean))
-    const mvLower = new Set(mvTags.map((t) => t.toLowerCase()))
-    const other = dedupe(piRows.map((r) => r['Generalized Description']).filter(Boolean)).filter(
-      (t) => !mvLower.has(t.toLowerCase()),
-    )
-    return [...mvTags, ...other]
-  }
-  return modelInputOptions(piRows, mvdvcvRows, new Set([sec.toLowerCase()]))
+  if (!sec) return all
+
+  const allowed = sectionOrder.length ? allowedSet(sectionOrder, sec) : new Set([sec.toLowerCase()])
+  const priority = mvdvcvTagNames(mvdvcvRows, allowed)
+  const priorityLower = new Set(priority.map((t) => t.toLowerCase()))
+  const rest = all.filter((t) => !priorityLower.has(t.toLowerCase()))
+  return [...priority, ...rest]
+}
+
+/** Ensures a row's already-saved value for a dropdown is always selectable,
+ * even if it falls outside the computed options (a stray/typo'd tag that
+ * doesn't match any known PI/MV-DV-CV description) — so an existing value
+ * never silently renders as a blank selection. */
+export function optionsWithCurrentValue(options: string[], current: string | undefined): string[] {
+  const value = (current ?? '').trim()
+  if (!value) return options
+  const lower = value.toLowerCase()
+  if (options.some((o) => o.toLowerCase() === lower)) return options
+  return [value, ...options]
 }
 
 function dedupe(values: string[]): string[] {

@@ -146,7 +146,11 @@ export function SystemConfigTab({ onSaved }: SystemConfigTabProps = {}) {
                 Optional: Manipulated/Disturbance/Controlled variable tags — prioritized as an input-tag source ahead
                 of the general PI Tag Mapping list when configuring model inputs.
               </p>
-              <MvDvCvTagListEditor allowed={allowed} onSaved={onSaved} />
+              <MvDvCvTagListEditor
+                allowed={allowed}
+                sectionOptions={['', ...sectionOrderList]}
+                onSaved={onSaved}
+              />
               <p className="caption" style={{ marginTop: '0.5rem' }}>
                 {(mvdvcvQuery.data ?? []).length} tag(s) configured.
               </p>

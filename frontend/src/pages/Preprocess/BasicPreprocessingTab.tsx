@@ -152,7 +152,7 @@ export function BasicPreprocessingTab({ datasetName, numericCols, stats, onClean
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <SectionBanner
         icon="⚙️"
-        title="Basic Preprocessing"
+        title="Manual Preprocessing"
         subtitle="Remove records, impute missing values, handle outliers, and apply domain filters. Click 'Apply Cleaning' to save a new cleaned dataset."
       />
 

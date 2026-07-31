@@ -113,7 +113,7 @@ export function PreprocessPage({ hideStepper, onContinue }: PreprocessPageProps 
                   content: <AutomatedPreprocessingTab datasetName={datasetName} onCleaned={onCleaned} />,
                 },
                 {
-                  label: '⚙️ Basic Preprocessing',
+                  label: '⚙️ Manual Preprocessing',
                   content: (
                     <BasicPreprocessingTab
                       datasetName={datasetName}

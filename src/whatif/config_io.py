@@ -87,6 +87,11 @@ def match_sheet_to_field(sheet_name: str) -> str | None:
         return _SHEET_LOOKUP_NORM[n]
     if "pi" in n and ("general" in n or "generalis" in n or "generaliz" in n):
         return "pi_names_df"
+    # Tolerant of any MV/DV/CV letter ordering + "taglist"/"tag list" spacing
+    # (e.g. a workbook sheet literally named "MV_CV_DV Tag List") — not just
+    # the exact "mv_dv_cv_taglist" spelling in _SHEET_TO_FIELD above.
+    if "mv" in n and "dv" in n and "cv" in n and "tag" in n:
+        return "mvdvcv_df"
     return None
 
 

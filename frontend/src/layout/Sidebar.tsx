@@ -137,16 +137,16 @@ export function Sidebar() {
       <nav ref={navRef} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
         {NAV_ENTRIES.map((entry) =>
           isGroup(entry) ? (
-            <div key={entry.label} style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+            <div key={entry.label} style={{ marginTop: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
               <div
                 style={{
-                  fontSize: '0.68rem',
+                  fontSize: '0.92rem',
                   fontWeight: 700,
                   textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: 'var(--text-faint)',
+                  letterSpacing: '0.04em',
+                  color: 'var(--accent)',
                   padding: '0 0.6rem',
-                  marginBottom: '0.15rem',
+                  marginBottom: '0.3rem',
                 }}
               >
                 {entry.label}
