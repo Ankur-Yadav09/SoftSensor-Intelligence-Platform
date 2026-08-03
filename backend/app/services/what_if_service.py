@@ -801,11 +801,10 @@ def run_scenario(body: schemas.WhatIfScenarioRequest) -> schemas.WhatIfScenarioR
     except FileNotFoundError as e:
         raise HTTPException(status_code=422, detail=f"A required model artifact is missing: {e}")
 
-    all_keys = sorted(set(result.actual.keys()) | set(result.estimated.keys()))
+    all_keys = sorted(k for k in (set(result.actual.keys()) | set(result.estimated.keys())) if k != "Timestamp")
+    all_keys = kpi.apply_preferred_order(all_keys, cfg.display_order_df)
     rows: List[schemas.WhatIfScenarioRow] = []
     for key in all_keys:
-        if key == "Timestamp":
-            continue
         act = result.actual.get(key)
         est = result.estimated.get(key)
         try:
@@ -839,6 +838,7 @@ def run_validation_filter(body: schemas.ValidationFilterRequest) -> schemas.Vali
     cfg = _load_config()
     plugin = _load_plugin()
     available = [t for t in kpi.derive_kpi_tags(cfg, plugin) if t in df.columns]
+    available = kpi.apply_preferred_order(available, cfg.display_order_df)
     filtered = df.copy()
     for tag in available:
         criterion = body.filters.get(tag)

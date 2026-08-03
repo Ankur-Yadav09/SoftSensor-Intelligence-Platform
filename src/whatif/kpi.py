@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from types import ModuleType
 
+import pandas as pd
+
 from src.whatif.config_io import WhatIfConfig
 
 
@@ -59,3 +61,26 @@ def derive_kpi_tags(config: WhatIfConfig, plugin: ModuleType | None) -> list[str
         tags = deduped
 
     return tags
+
+
+def apply_preferred_order(tags: list[str], display_order_df: pd.DataFrame | None) -> list[str]:
+    """Reorders `tags` per the "Results Layout" / display_column_order
+    sheet's "Preferred columns" list (see ColumnOrderEditor.tsx) — every
+    preferred tag that's actually present moves to the front, in the order
+    given; everything else keeps following in its original relative order.
+    Nothing is ever dropped, only reordered, matching the "reorder don't
+    filter" precedent set by Model Mapping's input-tag dropdowns. A blank/
+    missing sheet is a no-op, so this is safe to call unconditionally."""
+    if display_order_df is None or display_order_df.empty or "Preferred columns" not in display_order_df.columns:
+        return tags
+
+    preferred = [
+        str(p).strip()
+        for p in display_order_df["Preferred columns"].tolist()
+        if str(p).strip() and str(p).strip().lower() != "nan"
+    ]
+    tag_set = set(tags)
+    ordered_preferred = [t for t in preferred if t in tag_set]
+    preferred_set = set(ordered_preferred)
+    remaining = [t for t in tags if t not in preferred_set]
+    return ordered_preferred + remaining

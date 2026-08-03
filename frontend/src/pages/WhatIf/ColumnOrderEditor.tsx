@@ -2,11 +2,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { commitColumnOrder, getColumnOrder } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
+import { optionsWithCurrentValue } from './caseSetupHelpers'
 import type { ColumnOrderRow } from '../../api/types'
 
 interface ColumnOrderEditorProps {
-  /** "Preferred columns" dropdown options (section-scoped tags). Falls back
-   * to a free-text input when omitted. */
+  /** "Preferred columns" dropdown options (section-scoped PI tags). Falls
+   * back to a free-text input when omitted. Preferred Columns routinely
+   * also names computed/derived parameters (predicted parameters, KPI
+   * totals) that aren't PI tags at all — those wouldn't match any <option>
+   * here, so optionsWithCurrentValue() below keeps an already-saved value
+   * selectable regardless, instead of silently rendering as a blank
+   * selection. */
   tagOptions?: string[]
 }
 
@@ -75,7 +81,7 @@ export function ColumnOrderEditor({ tagOptions }: ColumnOrderEditorProps) {
                     style={{ width: 260 }}
                   >
                     <option value="">—</option>
-                    {tagOptions.map((t) => (
+                    {optionsWithCurrentValue(tagOptions, row['Preferred columns']).map((t) => (
                       <option key={t} value={t}>
                         {t}
                       </option>
