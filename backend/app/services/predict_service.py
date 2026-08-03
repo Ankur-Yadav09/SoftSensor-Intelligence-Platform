@@ -16,7 +16,7 @@ from typing import Optional
 import pandas as pd
 from fastapi import HTTPException
 
-from src.data.database import load_dataset_from_db
+from src.data.database import DEFAULT_CASE_ID, load_dataset_from_db
 from src.evaluation.metrics import compute_metrics
 from src.persistence.model_store import list_saved_models, load_model_from_disk
 
@@ -30,12 +30,13 @@ def run_predict(
     dataset_name: Optional[str],
     row_start: Optional[int],
     row_end: Optional[int],
+    case_id: str = DEFAULT_CASE_ID,
 ) -> dict:
-    known_names = {m["name"] for m in list_saved_models()}  # unchanged
+    known_names = {m["name"] for m in list_saved_models(case_id)}
     if model_name not in known_names:
         raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found.")
 
-    wrapper, scaler_x, scaler_y, x_cols, y_cols = load_model_from_disk(model_name)  # unchanged
+    wrapper, scaler_x, scaler_y, x_cols, y_cols = load_model_from_disk(model_name, case_id)
 
     if source == "project_test":
         if not project_id:

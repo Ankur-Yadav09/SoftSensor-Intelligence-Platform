@@ -26,11 +26,11 @@ import os
 import mlflow
 import pandas as pd
 
-from config.settings import MLFLOW_EXPERIMENT_NAME, MLFLOW_TRACKING_URI, MODEL_DIR
-from src.data.database import save_model_to_registry
+from config.settings import MLFLOW_EXPERIMENT_NAME, MLFLOW_TRACKING_URI
+from src.data.database import DEFAULT_CASE_ID, save_model_to_registry
 from src.evaluation.metrics import compute_metrics
 from src.models.wrappers import DAEWrapper
-from src.persistence.model_store import save_model_to_disk
+from src.persistence.model_store import case_model_dir, save_model_to_disk
 from src.training.train_kalman import train_kalman_model
 from src.training.train_lstm import train_lstm
 from src.training.train_sklearn import train_sklearn_model
@@ -51,6 +51,7 @@ def _finish(
     wrapper,
     loss_history: dict,
     hyperparameters: dict,
+    case_id: str = DEFAULT_CASE_ID,
 ) -> dict:
     preds = project.scaler_y.inverse_transform(wrapper.predict_scaled(project.X_test))  # unchanged
     metrics_df = compute_metrics(project.y_test_raw, preds, project.y_cols)  # unchanged
@@ -71,11 +72,11 @@ def _finish(
         f"{algorithm.replace(' ', '_')}_{project.project_id}_"
         f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     )
-    save_model_to_disk(  # unchanged
-        wrapper, project.scaler_x, project.scaler_y, project.x_cols, project.y_cols, model_name
+    save_model_to_disk(
+        wrapper, project.scaler_x, project.scaler_y, project.x_cols, project.y_cols, model_name, case_id=case_id
     )
     try:
-        save_model_to_registry(  # unchanged
+        save_model_to_registry(
             model_name=model_name,
             algorithm=algorithm,
             dataset_name=project.dataset_name,
@@ -84,10 +85,11 @@ def _finish(
             avg_r2=avg_r2,
             avg_rmse=avg_rmse,
             avg_mae=avg_mae,
-            file_path=os.path.join(MODEL_DIR, model_name),
+            file_path=os.path.join(case_model_dir(case_id), model_name),
             train_r2=train_r2,
             train_rmse=train_rmse,
             train_mae=train_mae,
+            case_id=case_id,
         )
     except Exception:
         pass  # registry write failure must not block training success (matches train.py today)
@@ -114,7 +116,7 @@ def _finish(
             for key in ("epoch_recon_losses", "epoch_pred_losses", "val_recon_losses", "val_pred_losses"):
                 for step, value in enumerate(loss_history.get(key, [])):
                     mlflow.log_metric(key, value, step=step)
-            mlflow.log_artifacts(os.path.join(MODEL_DIR, model_name))
+            mlflow.log_artifacts(os.path.join(case_model_dir(case_id), model_name))
     except Exception:
         pass
 
@@ -139,7 +141,9 @@ def _finish(
     }
 
 
-def prepare_training_job(project_id: str, algorithm: str, hyperparameters: dict):
+def prepare_training_job(
+    project_id: str, algorithm: str, hyperparameters: dict, case_id: str = DEFAULT_CASE_ID
+):
     """
     Eagerly loads the project (so a bad project_id 404s immediately from the
     route rather than surfacing only via job polling) and returns the target
@@ -165,7 +169,7 @@ def prepare_training_job(project_id: str, algorithm: str, hyperparameters: dict)
                 **hyperparameters,
             )
             wrapper = DAEWrapper(dae)
-            return _finish(project, algorithm, wrapper, loss_history, hyperparameters)
+            return _finish(project, algorithm, wrapper, loss_history, hyperparameters, case_id)
 
         return target, "epoch"
 
@@ -183,7 +187,7 @@ def prepare_training_job(project_id: str, algorithm: str, hyperparameters: dict)
                 status_callback=status_callback,
                 **hyperparameters,
             )
-            return _finish(project, algorithm, wrapper, loss_history, hyperparameters)
+            return _finish(project, algorithm, wrapper, loss_history, hyperparameters, case_id)
 
         return target, "epoch"
 
@@ -200,7 +204,7 @@ def prepare_training_job(project_id: str, algorithm: str, hyperparameters: dict)
                 model_type=algorithm,
                 **hyperparameters,
             )
-            return _finish(project, algorithm, wrapper, loss_history, hyperparameters)
+            return _finish(project, algorithm, wrapper, loss_history, hyperparameters, case_id)
 
         return target, "none"
 

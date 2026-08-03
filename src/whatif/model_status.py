@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from src.data.database import list_model_selections
+from src.data.database import DEFAULT_CASE_ID, list_model_selections
 from src.whatif import config_io
 
 
@@ -43,19 +43,20 @@ def _tag_artifacts(model_dir: str, tag: str) -> list[str]:
     ]
 
 
-def required_kalman_tags(model_details_df: pd.DataFrame) -> list[str]:
+def required_kalman_tags(model_details_df: pd.DataFrame, case_id: str = DEFAULT_CASE_ID) -> list[str]:
     """Every 'Predicted parameter' whose model type is data-driven (blank
     defaults to data-driven) — i.e. every parameter src/whatif/engine.py will
     try to Kalman-predict rather than hand to the plant plug-in.
 
     A parameter with an Experiment-History-selected Soft Sensor model
-    (src.data.database.whatif_model_selection) is excluded: engine.py tries
-    that model first and only falls back to Kalman if it's missing, so a
-    selected parameter no longer needs Kalman artifacts to be "ready"."""
+    (src.data.database.whatif_model_selection, scoped to case_id) is
+    excluded: engine.py tries that model first and only falls back to Kalman
+    if it's missing, so a selected parameter no longer needs Kalman
+    artifacts to be "ready"."""
     if model_details_df is None or model_details_df.empty or "Predicted parameter" not in model_details_df.columns:
         return []
     non_data = config_io.non_data_model_parameters(model_details_df)
-    selected = set(list_model_selections())
+    selected = set(list_model_selections(case_id))
     tags = model_details_df["Predicted parameter"].dropna().astype(str).str.strip()
     return [t for t in tags.unique() if t and t not in non_data and t not in selected]
 

@@ -38,6 +38,13 @@ import pandas as pd
 
 from config.settings import DB_PATH
 
+# The un-nested, flat Data/Results/saved_models layout every path in this
+# repo already used before per-case isolation existed — resolving to this
+# id is a complete no-op relative to that pre-existing layout, so nothing
+# has to move on disk for existing installs (see src/whatif/paths.py's
+# _case_dir() and src/persistence/model_store.py's mirror of it).
+DEFAULT_CASE_ID = "default"
+
 # ---------------------------------------------------------------------------
 # Schema bootstrap
 # ---------------------------------------------------------------------------
@@ -100,9 +107,13 @@ def init_db() -> None:
         # Which saved Soft Sensor model (model_registry/saved_models) is the
         # active predictor for a given What-If "Predicted parameter" — the
         # single, narrow bridge between the two otherwise-separate
-        # persistence worlds (see ARCHITECTURE.md §4). One row per parameter;
-        # selecting a new model for the same parameter replaces this row
-        # rather than adding another (see set_model_selection()).
+        # persistence worlds (see ARCHITECTURE.md §4). One row per
+        # (case_id, parameter); selecting a new model for the same parameter
+        # in the same case replaces this row rather than adding another (see
+        # set_model_selection() — enforced in application code via an
+        # explicit DELETE+INSERT, not a composite PRIMARY KEY, since this
+        # table already shipped with a single-column `parameter` PK and
+        # SQLite can't cheaply change a PK on an existing table).
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS whatif_model_selection (
@@ -111,6 +122,34 @@ def init_db() -> None:
                 selected_at TEXT NOT NULL
             )
             """
+        )
+        # Isolates Soft Sensor's trained-model layer (model_registry,
+        # saved_models/ on disk) and the What-If model-selection bridge
+        # per What-If "case" (see whatif_cases below) — every existing row
+        # defaults to DEFAULT_CASE_ID, i.e. today's single shared model list,
+        # so nothing changes for existing installs until a second case exists.
+        _ensure_column(conn, "model_registry", "case_id", f"TEXT NOT NULL DEFAULT '{DEFAULT_CASE_ID}'")
+        _ensure_column(conn, "whatif_model_selection", "case_id", f"TEXT NOT NULL DEFAULT '{DEFAULT_CASE_ID}'")
+        # What-If "cases" — folder-per-case isolation modeled on the
+        # legacy Streamlit reference app's multi-plant structure (see
+        # src/whatif/paths.py's _case_dir()), applied here to isolated
+        # scenario setups for the same single plant rather than different
+        # plants. case_id is the sanitized, folder-safe identifier used
+        # directly as the Data/<case_id> and Results/<case_id> folder name.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS whatif_cases (
+                case_id        TEXT PRIMARY KEY,
+                name           TEXT NOT NULL,
+                created_at     TEXT NOT NULL,
+                last_opened_at TEXT NOT NULL
+            )
+            """
+        )
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "INSERT OR IGNORE INTO whatif_cases (case_id, name, created_at, last_opened_at) VALUES (?, ?, ?, ?)",
+            (DEFAULT_CASE_ID, "Default Case", now, now),
         )
         conn.commit()
 
@@ -242,6 +281,7 @@ def save_model_to_registry(
     train_r2: Optional[float] = None,
     train_rmse: Optional[float] = None,
     train_mae: Optional[float] = None,
+    case_id: str = DEFAULT_CASE_ID,
 ) -> int:
     """Insert a model record into the registry. Returns the new row id."""
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -251,8 +291,8 @@ def save_model_to_registry(
             INSERT INTO model_registry
                 (model_name, algorithm, created_at, dataset_name,
                  x_cols, y_cols, avg_r2, avg_rmse, avg_mae, file_path,
-                 train_r2, train_rmse, train_mae)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 train_r2, train_rmse, train_mae, case_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 model_name, algorithm, now, dataset_name,
@@ -262,20 +302,22 @@ def save_model_to_registry(
                 round(float(train_r2), 4) if train_r2 is not None else None,
                 round(float(train_rmse), 4) if train_rmse is not None else None,
                 round(float(train_mae), 4) if train_mae is not None else None,
+                case_id,
             ),
         )
         conn.commit()
         return cur.lastrowid
 
 
-def list_models_from_registry() -> List[Dict]:
-    """Return all model registry records ordered by most recent first."""
+def list_models_from_registry(case_id: str = DEFAULT_CASE_ID) -> List[Dict]:
+    """Return all model registry records for `case_id`, most recent first."""
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             "SELECT id, model_name, algorithm, created_at, dataset_name, "
             "x_cols, y_cols, avg_r2, avg_rmse, avg_mae, file_path, "
             "train_r2, train_rmse, train_mae "
-            "FROM model_registry ORDER BY created_at DESC"
+            "FROM model_registry WHERE case_id = ? ORDER BY created_at DESC",
+            (case_id,),
         ).fetchall()
     result = []
     for r in rows:
@@ -310,34 +352,101 @@ def delete_model_from_registry(model_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-def set_model_selection(parameter: str, model_name: str) -> None:
-    """Mark model_name as the active Soft Sensor model for parameter.
-
-    Upsert on the parameter PRIMARY KEY — this is what guarantees only one
-    experiment can be selected per parameter at a time.
-    """
+def set_model_selection(parameter: str, model_name: str, case_id: str = DEFAULT_CASE_ID) -> None:
+    """Mark model_name as the active Soft Sensor model for parameter within
+    case_id. Explicit DELETE+INSERT (rather than INSERT OR REPLACE against a
+    PRIMARY KEY) is what guarantees only one experiment can be selected per
+    (case_id, parameter) — see the case_id column's schema-bootstrap note."""
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
+            "DELETE FROM whatif_model_selection WHERE case_id = ? AND parameter = ?",
+            (case_id, parameter),
+        )
+        conn.execute(
             """
-            INSERT OR REPLACE INTO whatif_model_selection (parameter, model_name, selected_at)
-            VALUES (?, ?, ?)
+            INSERT INTO whatif_model_selection (parameter, model_name, selected_at, case_id)
+            VALUES (?, ?, ?, ?)
             """,
-            (parameter, model_name, now),
+            (parameter, model_name, now, case_id),
         )
         conn.commit()
 
 
-def clear_model_selection(parameter: str) -> None:
-    """Remove any selection for parameter, reverting it to the dedicated
-    Kalman-filter fallback path in src/whatif/engine.py."""
+def clear_model_selection(parameter: str, case_id: str = DEFAULT_CASE_ID) -> None:
+    """Remove any selection for parameter within case_id, reverting it to the
+    dedicated Kalman-filter fallback path in src/whatif/engine.py."""
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("DELETE FROM whatif_model_selection WHERE parameter = ?", (parameter,))
+        conn.execute(
+            "DELETE FROM whatif_model_selection WHERE case_id = ? AND parameter = ?",
+            (case_id, parameter),
+        )
         conn.commit()
 
 
-def list_model_selections() -> Dict[str, str]:
-    """Return {parameter: model_name} for every currently selected experiment."""
+def list_model_selections(case_id: str = DEFAULT_CASE_ID) -> Dict[str, str]:
+    """Return {parameter: model_name} for every currently selected experiment
+    within case_id."""
     with sqlite3.connect(DB_PATH) as conn:
-        rows = conn.execute("SELECT parameter, model_name FROM whatif_model_selection").fetchall()
+        rows = conn.execute(
+            "SELECT parameter, model_name FROM whatif_model_selection WHERE case_id = ?",
+            (case_id,),
+        ).fetchall()
     return {r[0]: r[1] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# What-If cases — folder-per-case isolation (see DEFAULT_CASE_ID docstring
+# and src/whatif/paths.py's _case_dir())
+# ---------------------------------------------------------------------------
+
+
+def sanitize_case_id(name: str) -> str:
+    """Folder-safe case identifier from a user-typed display name — mirrors
+    the legacy Streamlit reference app's plant-name sanitization exactly."""
+    import re
+
+    return re.sub(r"[^A-Za-z0-9_-]", "_", (name or "").strip())
+
+
+def create_case(case_id: str, name: str) -> None:
+    """Registers a new case. Raises sqlite3.IntegrityError if case_id already
+    exists — callers should check list_cases()/get_case() first for a
+    friendlier duplicate-name error."""
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO whatif_cases (case_id, name, created_at, last_opened_at) VALUES (?, ?, ?, ?)",
+            (case_id, name, now, now),
+        )
+        conn.commit()
+
+
+def list_cases() -> List[Dict]:
+    """Every case, most recently opened first."""
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            "SELECT case_id, name, created_at, last_opened_at FROM whatif_cases ORDER BY last_opened_at DESC"
+        ).fetchall()
+    return [
+        {"case_id": r[0], "name": r[1], "created_at": r[2], "last_opened_at": r[3]}
+        for r in rows
+    ]
+
+
+def get_case(case_id: str) -> Optional[Dict]:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT case_id, name, created_at, last_opened_at FROM whatif_cases WHERE case_id = ?",
+            (case_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"case_id": row[0], "name": row[1], "created_at": row[2], "last_opened_at": row[3]}
+
+
+def touch_case_opened(case_id: str) -> None:
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("UPDATE whatif_cases SET last_opened_at = ? WHERE case_id = ?", (now, case_id))
+        conn.commit()

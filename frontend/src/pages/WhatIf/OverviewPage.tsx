@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { createCase, listCases, openCase } from '../../api/cases'
 import {
   downloadBlob,
   exportFullConfig,
@@ -14,28 +15,30 @@ import {
   getSectionOrder,
   getTargetSection,
   getUserInputs,
-  saveConfig,
 } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import { StatusCard } from '../../components/StatusCard'
+import { useActiveCase } from '../../state/ActiveCaseContext'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
 
-// "Start New Case" clears the one shared Config_file.xlsx back to blank —
-// this app has no per-case storage (ARCHITECTURE.md's file-based What-If
-// persistence model), so "new" can only mean "reset the shared file," never
-// "create an isolated blank copy." Scoped to the 8 config sheets only —
-// trained Kalman .pkl artifacts and Soft Sensor saved_models/Experiment
-// History selections are a separate persistence world and are untouched.
-const EMPTY_CONFIG_PAYLOAD = {
-  pi_mapping_rows: [],
-  model_details_rows: [],
-  constraints_rows: [],
-  user_inputs_rows: [],
-  display_order_rows: [],
-  section_order_rows: [],
-  mvdvcv_rows: [],
-  target_section: null,
-}
+// Query keys that vary by active case -- invalidated on every case switch
+// (create or open) so the page's status tiles and every What-If Setup /
+// Experimentation & Model Selection tab refetch against the newly active
+// case rather than showing stale data carried over from the previous one.
+const CASE_SCOPED_QUERY_KEYS = [
+  'whatif-config-status',
+  'whatif-models-status',
+  'whatif-pi-mapping',
+  'whatif-model-mapping',
+  'whatif-section-order',
+  'whatif-mvdvcv',
+  'whatif-constraints',
+  'whatif-user-inputs',
+  'whatif-column-order',
+  'whatif-target-section',
+  'whatif-detected-counts',
+  'overview',
+]
 
 const GUIDE_SECTIONS = [
   {
@@ -117,11 +120,18 @@ function ResourceButton({
 export function WhatIfOverviewPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { activeCaseId, setActiveCaseId } = useActiveCase()
   const { targetSection, setTargetSection, setGeneratedTags } = useActiveWhatIf()
   const [guideOpen, setGuideOpen] = useState(false)
   const [faqOpen, setFaqOpen] = useState(false)
+  const [newCaseOpen, setNewCaseOpen] = useState(false)
+  const [casePickerOpen, setCasePickerOpen] = useState(false)
+  const [newCaseName, setNewCaseName] = useState('')
   const guideRef = useRef<HTMLDivElement>(null)
   const faqRef = useRef<HTMLDivElement>(null)
+
+  const casesQuery = useQuery({ queryKey: ['whatif-cases'], queryFn: listCases })
+  const activeCase = casesQuery.data?.find((c) => c.case_id === activeCaseId)
 
   // Opening the User Guide / FAQ reveals a panel below the Resources
   // buttons — on a shorter viewport that panel lands off-screen, so
@@ -147,42 +157,44 @@ export function WhatIfOverviewPage() {
   const hasAnyConfig = piPresent || modelPresent || processOrderReady
   const fullyReady = processOrderReady && piPresent && modelPresent && modelsReady
 
-  const resetCaseMutation = useMutation({
-    mutationFn: () => saveConfig(EMPTY_CONFIG_PAYLOAD),
-    onSuccess: () => {
-      for (const key of [
-        'whatif-config-status',
-        'whatif-models-status',
-        'whatif-pi-mapping',
-        'whatif-model-mapping',
-        'whatif-section-order',
-        'whatif-mvdvcv',
-        'whatif-constraints',
-        'whatif-user-inputs',
-        'whatif-column-order',
-        'whatif-target-section',
-        'whatif-detected-counts',
-      ]) {
-        queryClient.invalidateQueries({ queryKey: [key] })
-      }
-      setTargetSection(null)
-      setGeneratedTags([])
-      navigate('/what-if/case-setup')
+  // Switching the active case (creating a new one, or opening a different
+  // existing one) invalidates every case-scoped query and clears the
+  // client-side wizard state (ActiveWhatIfContext's target section/generated
+  // tags), since those are cached under a single global localStorage key,
+  // not per case, and would otherwise still show the previous case's
+  // picks even though the backend sheet is now a different case entirely.
+  function switchToCase(caseId: string) {
+    setActiveCaseId(caseId)
+    for (const key of CASE_SCOPED_QUERY_KEYS) {
+      queryClient.invalidateQueries({ queryKey: [key] })
+    }
+    setTargetSection(null)
+    setGeneratedTags([])
+    navigate('/what-if/case-setup')
+  }
+
+  const createCaseMutation = useMutation({
+    mutationFn: (name: string) => createCase(name),
+    onSuccess: (created) => {
+      setNewCaseName('')
+      setNewCaseOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['whatif-cases'] })
+      switchToCase(created.case_id)
     },
   })
 
-  function startNewCase() {
-    const confirmed = window.confirm(
-      'This clears the current configuration (PI Tag Mapping, Model Mapping, Constraints, User Inputs, ' +
-        'Results Layout, Section Order, MV/DV/CV Tag List, Target Section) for everyone using this app — ' +
-        'there is only one shared configuration file. Trained models and Experiment History selections are ' +
-        'not affected. Continue?',
-    )
-    if (confirmed) resetCaseMutation.mutate()
-  }
+  const openCaseMutation = useMutation({
+    mutationFn: (caseId: string) => openCase(caseId),
+    onSuccess: (opened) => {
+      setCasePickerOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['whatif-cases'] })
+      switchToCase(opened.case_id)
+    },
+  })
 
-  function resumeCase() {
-    navigate(fullyReady ? '/what-if/dashboard' : '/what-if/case-setup')
+  function submitNewCase() {
+    const name = newCaseName.trim()
+    if (name) createCaseMutation.mutate(name)
   }
 
   const downloadSampleMutation = useMutation({
@@ -236,7 +248,11 @@ export function WhatIfOverviewPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
-      {/* Welcome + Quick Actions */}
+      {/* Welcome banner -- kept to just the heading/buttons; the case
+          panels below are deliberately siblings, not descendants, of
+          .section-banner: that class forces every nested <p> to the pale
+          --banner-subtitle color meant for its dark gradient background,
+          which is invisible against the white .card panels used here. */}
       <div className="section-banner" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <span className="icon">🧭</span>
@@ -248,20 +264,84 @@ export function WhatIfOverviewPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <button onClick={startNewCase} disabled={resetCaseMutation.isPending}>
-            {resetCaseMutation.isPending ? 'Clearing…' : '▶ Start New Case'}
+          <button
+            onClick={() => {
+              setCasePickerOpen(false)
+              setNewCaseOpen((o) => !o)
+            }}
+          >
+            + New Case
           </button>
           <button
             className="chip"
-            onClick={resumeCase}
-            disabled={!hasAnyConfig}
-            title={hasAnyConfig ? undefined : 'No existing configuration found yet'}
+            onClick={() => {
+              setNewCaseOpen(false)
+              setCasePickerOpen((o) => !o)
+            }}
           >
-            ⏩ Resume Existing Case
+            ⏩ Switch / Resume Case
           </button>
         </div>
-        {resetCaseMutation.isError && (
-          <Callout variant="error">Could not clear the configuration. Please try again.</Callout>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <p className="caption" style={{ margin: 0 }}>
+          Current case: <strong>{activeCase?.name ?? activeCaseId}</strong>
+        </p>
+
+        {newCaseOpen && (
+          <div className="card" style={{ padding: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              placeholder="Case name (e.g. Furnace Trial 2)"
+              value={newCaseName}
+              onChange={(e) => setNewCaseName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submitNewCase()}
+              style={{ flex: 1, minWidth: 220 }}
+              autoFocus
+            />
+            <button onClick={submitNewCase} disabled={!newCaseName.trim() || createCaseMutation.isPending}>
+              {createCaseMutation.isPending ? 'Creating…' : 'Create'}
+            </button>
+            <p className="caption" style={{ width: '100%', margin: 0 }}>
+              No files needed — you'll build the PI mapping, model mapping, constraints, user inputs and column
+              order for this case entirely in What-If Setup, then save it from there.
+            </p>
+            {createCaseMutation.isError && <Callout variant="error">Could not create that case — try a different name.</Callout>}
+          </div>
+        )}
+
+        {casePickerOpen && (
+          <div className="card" style={{ padding: '1rem' }}>
+            {casesQuery.isLoading ? (
+              <p className="caption">Loading cases…</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {(casesQuery.data ?? []).map((c) => (
+                  <div
+                    key={c.case_id}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{c.name}</div>
+                      <p className="caption" style={{ margin: 0 }}>Last opened {c.last_opened_at}</p>
+                    </div>
+                    {c.case_id === activeCaseId ? (
+                      <span className="pill active">✓ Active</span>
+                    ) : (
+                      <button
+                        className="chip"
+                        onClick={() => openCaseMutation.mutate(c.case_id)}
+                        disabled={openCaseMutation.isPending}
+                      >
+                        Open
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -281,24 +361,27 @@ export function WhatIfOverviewPage() {
         </div>
       </div>
 
-      {/* Current / recent case */}
+      {/* Current case status */}
       <div>
-        <h3 style={{ marginBottom: '0.75rem' }}>Recent Cases</h3>
+        <h3 style={{ marginBottom: '0.75rem' }}>Current Case</h3>
         {hasAnyConfig ? (
           <div className="card" style={{ padding: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <div style={{ fontWeight: 700 }}>Current configuration</div>
+              <div style={{ fontWeight: 700 }}>{activeCase?.name ?? activeCaseId}</div>
               <p className="caption" style={{ margin: 0 }}>
                 Target section: {targetSection ?? targetSectionQuery.data?.target_section ?? 'not set'} ·{' '}
                 {fullyReady ? 'Ready to run scenarios' : 'Setup in progress'}
               </p>
             </div>
-            <button className="chip" onClick={resumeCase}>
+            <button
+              className="chip"
+              onClick={() => navigate(fullyReady ? '/what-if/dashboard' : '/what-if/case-setup')}
+            >
               {fullyReady ? 'Go to What-If Analysis →' : 'Continue Setup →'}
             </button>
           </div>
         ) : (
-          <p className="caption">No cases yet — click "Start New Case" above to begin.</p>
+          <p className="caption">This case is empty — build its configuration in What-If Setup.</p>
         )}
       </div>
 

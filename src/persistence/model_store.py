@@ -14,18 +14,22 @@ Kalman Filter  — recursive linear filter (model.pkl)
 
 Directory layout
 ----------------
-saved_models/<model_name>/
+saved_models/<case_id>/<model_name>/    (flat saved_models/<model_name>/ for the default case)
     model.pth | model.pkl   model weights / fitted estimator
     scaler_x.pkl            fitted StandardScaler for X
     scaler_y.pkl            fitted StandardScaler for Y
     columns.pkl             {'x_cols': [...], 'y_cols': [...]}
     metadata.pkl            info dict including model_type
 
+Case isolation mirrors src/whatif/paths.py's _case_dir(): DEFAULT_CASE_ID
+resolves to the original flat saved_models/<model_name>/ layout unchanged,
+so every model saved before per-case isolation existed keeps working.
+
 Public API
 ----------
-save_model_to_disk(wrapper, scaler_x, scaler_y, x_cols, y_cols, model_name)
-load_model_from_disk(model_name)  → (wrapper, scaler_x, scaler_y, x_cols, y_cols)
-list_saved_models()               → list[dict]
+save_model_to_disk(wrapper, scaler_x, scaler_y, x_cols, y_cols, model_name, case_id=DEFAULT_CASE_ID)
+load_model_from_disk(model_name, case_id=DEFAULT_CASE_ID)  → (wrapper, scaler_x, scaler_y, x_cols, y_cols)
+list_saved_models(case_id=DEFAULT_CASE_ID)                 → list[dict]
 """
 from __future__ import annotations
 
@@ -37,10 +41,21 @@ from typing import List, Tuple
 import torch
 
 from config.settings import MODEL_DIR
+from src.data.database import DEFAULT_CASE_ID
 from src.models.architecture import IndustrialDAE
 from src.models.wrappers import DAEWrapper, LSTMPredictor, LSTMWrapper, SklearnWrapper
 
 _SKLEARN_TYPES = {"Random Forest", "XGBoost", "LightGBM", "Kalman Filter"}
+
+
+def case_model_dir(case_id: str) -> str:
+    """The saved_models/ folder scoped to case_id (flat MODEL_DIR for the
+    default case) -- also used by callers outside this module (e.g.
+    training_service.py) that need to record a model_registry file_path
+    consistent with where save_model_to_disk() actually wrote it."""
+    if case_id == DEFAULT_CASE_ID:
+        return MODEL_DIR
+    return os.path.join(MODEL_DIR, case_id)
 
 
 # ---------------------------------------------------------------------------
@@ -55,13 +70,14 @@ def save_model_to_disk(
     x_cols: List[str],
     y_cols: List[str],
     model_name: str,
+    case_id: str = DEFAULT_CASE_ID,
 ) -> None:
     """
     Persist any supported model wrapper with its scalers and column config.
 
     Idempotent: a second call with the same model_name silently overwrites.
     """
-    save_path = os.path.join(MODEL_DIR, model_name)
+    save_path = os.path.join(case_model_dir(case_id), model_name)
     os.makedirs(save_path, exist_ok=True)
 
     model_type = wrapper.model_type
@@ -131,6 +147,7 @@ def save_model_to_disk(
 
 def load_model_from_disk(
     model_name: str,
+    case_id: str = DEFAULT_CASE_ID,
 ) -> Tuple[object, object, object, List[str], List[str]]:
     """
     Reconstruct a saved model from disk.
@@ -141,7 +158,7 @@ def load_model_from_disk(
 
     where wrapper is one of DAEWrapper | SklearnWrapper | LSTMWrapper.
     """
-    load_path = os.path.join(MODEL_DIR, model_name)
+    load_path = os.path.join(case_model_dir(case_id), model_name)
 
     with open(os.path.join(load_path, "metadata.pkl"), "rb") as fh:
         meta = pickle.load(fh)
@@ -200,14 +217,15 @@ def load_model_from_disk(
 # ---------------------------------------------------------------------------
 
 
-def list_saved_models() -> List[dict]:
-    """Return metadata dicts for every model saved to disk."""
+def list_saved_models(case_id: str = DEFAULT_CASE_ID) -> List[dict]:
+    """Return metadata dicts for every model saved to disk within case_id."""
     models: List[dict] = []
-    if not os.path.exists(MODEL_DIR):
+    case_dir = case_model_dir(case_id)
+    if not os.path.exists(case_dir):
         return models
 
-    for name in os.listdir(MODEL_DIR):
-        meta_path = os.path.join(MODEL_DIR, name, "metadata.pkl")
+    for name in os.listdir(case_dir):
+        meta_path = os.path.join(case_dir, name, "metadata.pkl")
         if os.path.exists(meta_path):
             try:
                 with open(meta_path, "rb") as fh:

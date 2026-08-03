@@ -1,5 +1,8 @@
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { listCases } from '../api/cases'
+import { useActiveCase } from '../state/ActiveCaseContext'
 
 interface NavLeaf {
   to: string
@@ -67,7 +70,15 @@ function NavItem({ item }: { item: NavLeaf }) {
 
 export function Sidebar() {
   const location = useLocation()
+  const navigate = useNavigate()
   const navRef = useRef<HTMLElement>(null)
+  const { activeCaseId } = useActiveCase()
+  // Not case-scoped itself (listing cases is how the active one gets picked
+  // in the first place), just reused here to resolve the id to its display
+  // name -- same query key as WhatIfOverviewPage's picker, so switching case
+  // there refreshes this pill too.
+  const casesQuery = useQuery({ queryKey: ['whatif-cases'], queryFn: listCases })
+  const activeCaseName = casesQuery.data?.find((c) => c.case_id === activeCaseId)?.name ?? activeCaseId
 
   // The sidebar scrolls internally on shorter viewports (see the aside's
   // overflowY:auto below); on navigation, bring the newly-active item into
@@ -161,6 +172,28 @@ export function Sidebar() {
         )}
       </nav>
       <div style={{ flex: 1 }} />
+      <button
+        onClick={() => navigate('/what-if/overview')}
+        title="Switch case"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.5rem',
+          padding: '0.5rem 0.6rem',
+          marginBottom: '0.75rem',
+          borderRadius: 8,
+          border: '1px solid var(--border)',
+          background: 'var(--bg-subtle)',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <span style={{ fontSize: '0.78rem', color: 'var(--text-main)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          📁 {activeCaseName}
+        </span>
+        <span style={{ fontSize: '0.72rem', color: 'var(--accent)', flexShrink: 0 }}>Switch</span>
+      </button>
       <div
         style={{
           borderTop: '1px solid var(--border)',

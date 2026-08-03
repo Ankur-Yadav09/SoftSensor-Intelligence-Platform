@@ -5,6 +5,21 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 
+class WhatIfCase(BaseModel):
+    case_id: str
+    name: str
+    created_at: str
+    last_opened_at: str
+
+
+class CasesListResponse(BaseModel):
+    cases: List[WhatIfCase]
+
+
+class CreateCaseRequest(BaseModel):
+    name: str
+
+
 class ConfigStatusResponse(BaseModel):
     pi_mapping_present: bool
     pi_mapping_row_count: int

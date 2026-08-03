@@ -77,9 +77,18 @@ button:hover {
 }
 
 button:disabled {
-  opacity: 0.45;
+  /* A plain opacity fade on the solid accent button washes both its teal
+     background and white text down together, so the label goes nearly
+     illegible on a light card (e.g. the "Create" button on the New Case
+     panel before a name is typed) -- swap to a distinct muted
+     background/text pair instead, which stays readable while still
+     reading as disabled. */
+  opacity: 1;
   cursor: not-allowed;
   filter: none;
+  background: var(--bg-subtle);
+  color: var(--text-caption);
+  border-color: var(--border);
 }
 
 /* A plain, neutral bordered look for buttons used as selection pills

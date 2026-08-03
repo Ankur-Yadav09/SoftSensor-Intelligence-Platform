@@ -178,6 +178,13 @@ export interface PredictResult {
 // What-If Analysis module
 // ---------------------------------------------------------------------------
 
+export interface WhatIfCase {
+  case_id: string
+  name: string
+  created_at: string
+  last_opened_at: string
+}
+
 export interface WhatIfConfigStatus {
   pi_mapping_present: boolean
   pi_mapping_row_count: number

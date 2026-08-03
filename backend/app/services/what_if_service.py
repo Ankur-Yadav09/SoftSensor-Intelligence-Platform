@@ -21,6 +21,7 @@ from typing import Any, Dict, List
 import pandas as pd
 from fastapi import HTTPException, UploadFile
 
+from src.data.database import DEFAULT_CASE_ID
 from src.whatif import config_io, engine, historian, kpi, model_status, paths, plants, wizard
 from src.whatif.config_io import WhatIfConfig
 
@@ -28,44 +29,46 @@ from backend.app.jobs.manager import job_manager
 from backend.app.schemas import what_if as schemas
 
 
-_config_cache: Dict[str, Any] = {"path": None, "mtime": None, "cfg": None}
+# Keyed by case_id (not a single slot) so switching between cases doesn't
+# thrash a shared cache entry -- each case's config/historian is cached
+# independently, invalidating only when that case's own file's mtime changes.
+_config_cache: Dict[str, Dict[str, Any]] = {}
 _config_cache_lock = threading.Lock()
 
 
-def _load_config() -> WhatIfConfig:
-    """Cached by (path, mtime), mirroring _load_historian() below: every
-    What-If endpoint calls this, and on every page mount several of them fire
-    in parallel (config/status, wizard/detected-counts, config/model-mapping,
+def _load_config(case_id: str = DEFAULT_CASE_ID) -> WhatIfConfig:
+    """Cached by (case_id, path, mtime), mirroring _load_historian() below:
+    every What-If endpoint calls this, and on every page mount several of them
+    fire in parallel (config/status, wizard/detected-counts, config/model-mapping,
     models/status), each independently opening Config_file.xlsx. Since this
     repo lives under a OneDrive-synced Desktop folder, that many concurrent
     opens is enough to collide with an in-flight upload's os.replace() and
     resurface the WinError 5 issue fixed in b98e63f. Safe to cache read-only
     (same rationale as _load_historian's docstring) — invalidates the instant
     the file's mtime changes, e.g. right after an upload."""
-    path = paths.config_file()
+    path = paths.config_file(case_id)
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail=f"Config file not found at {path}")
     mtime = os.path.getmtime(path)
     with _config_cache_lock:
-        if _config_cache["path"] == path and _config_cache["mtime"] == mtime:
-            return _config_cache["cfg"]
+        entry = _config_cache.get(case_id)
+        if entry and entry["path"] == path and entry["mtime"] == mtime:
+            return entry["cfg"]
     try:
         cfg = config_io.load_all_config(path)
     except config_io.ConfigSchemaError as e:
         raise HTTPException(status_code=422, detail=str(e))
     with _config_cache_lock:
-        _config_cache["path"] = path
-        _config_cache["mtime"] = mtime
-        _config_cache["cfg"] = cfg
+        _config_cache[case_id] = {"path": path, "mtime": mtime, "cfg": cfg}
     return cfg
 
 
-_historian_cache: Dict[str, Any] = {"path": None, "mtime": None, "df": None}
+_historian_cache: Dict[str, Dict[str, Any]] = {}
 _historian_cache_lock = threading.Lock()
 
 
-def _load_historian() -> pd.DataFrame:
-    """Cached by (path, mtime): the historian is a ~7000-row/194-column
+def _load_historian(case_id: str = DEFAULT_CASE_ID) -> pd.DataFrame:
+    """Cached by (case_id, path, mtime): the historian is a ~7000-row/194-column
     Excel file that takes several seconds to parse via openpyxl on every
     call — unlike the small config workbook, that cost is too high to pay
     on every dashboard interaction. Every consumer (engine.whatif_analysis,
@@ -73,18 +76,17 @@ def _load_historian() -> pd.DataFrame:
     from the returned frame or works on an explicit .copy(), so a read-only
     cache is safe. Invalidates automatically if the file is replaced (e.g. a
     future retrain phase), since the check is keyed on mtime, not just path."""
-    path = paths.historian_file()
+    path = paths.historian_file(case_id)
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail=f"Historian file not found at {path}")
     mtime = os.path.getmtime(path)
     with _historian_cache_lock:
-        if _historian_cache["path"] == path and _historian_cache["mtime"] == mtime:
-            return _historian_cache["df"]
+        entry = _historian_cache.get(case_id)
+        if entry and entry["path"] == path and entry["mtime"] == mtime:
+            return entry["df"]
     df = historian.load_process_data(path)
     with _historian_cache_lock:
-        _historian_cache["path"] = path
-        _historian_cache["mtime"] = mtime
-        _historian_cache["df"] = df
+        _historian_cache[case_id] = {"path": path, "mtime": mtime, "df": df}
     return df
 
 
@@ -143,14 +145,14 @@ def _atomic_write_bytes(path: str, data: bytes) -> None:
 # Config status / PI mapping / model mapping
 # ---------------------------------------------------------------------------
 
-def get_config_status() -> schemas.ConfigStatusResponse:
-    path = paths.config_file()
+def get_config_status(case_id: str = DEFAULT_CASE_ID) -> schemas.ConfigStatusResponse:
+    path = paths.config_file(case_id)
     if not os.path.isfile(path):
         return schemas.ConfigStatusResponse(
             pi_mapping_present=False, pi_mapping_row_count=0,
             model_details_present=False, model_details_row_count=0, source_path=None,
         )
-    cfg = _load_config()
+    cfg = _load_config(case_id)
     return schemas.ConfigStatusResponse(
         pi_mapping_present=not cfg.pi_names_df.empty,
         pi_mapping_row_count=len(cfg.pi_names_df),
@@ -160,35 +162,35 @@ def get_config_status() -> schemas.ConfigStatusResponse:
     )
 
 
-def get_pi_mapping() -> schemas.RowsResponse:
-    cfg = _load_config()
+def get_pi_mapping(case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     normalized = wizard.normalize_pi_df(cfg.pi_names_df)
     rows = json.loads(normalized.to_json(orient="records")) if not normalized.empty else []
     return schemas.RowsResponse(rows=rows)
 
 
-async def upload_config(file: UploadFile) -> schemas.ConfigStatusResponse:
+async def upload_config(file: UploadFile, case_id: str = DEFAULT_CASE_ID) -> schemas.ConfigStatusResponse:
     data = await file.read()
     try:
         pd.ExcelFile(io.BytesIO(data))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"Could not parse workbook: {e}")
     try:
-        _atomic_write_bytes(paths.config_file(), data)
+        _atomic_write_bytes(paths.config_file(case_id), data)
     except OSError as e:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"The workbook was read successfully, but saving it to {paths.config_file()} failed: {e}. "
+                f"The workbook was read successfully, but saving it to {paths.config_file(case_id)} failed: {e}. "
                 "This usually means the file is currently open in Excel or being synced by OneDrive/cloud "
                 "storage — close it and try again."
             ),
         )
-    return get_config_status()
+    return get_config_status(case_id)
 
 
-def get_detected_counts() -> schemas.DetectedCountsResponse:
-    cfg = _load_config()
+def get_detected_counts(case_id: str = DEFAULT_CASE_ID) -> schemas.DetectedCountsResponse:
+    cfg = _load_config(case_id)
     pi_norm = wizard.normalize_pi_df(cfg.pi_names_df)
     cgc = wizard.available_stages(pi_norm, "CGC")
     prc = wizard.available_stages(pi_norm, "PRC")
@@ -202,8 +204,10 @@ def get_detected_counts() -> schemas.DetectedCountsResponse:
     )
 
 
-def generate_mapping(body: schemas.GenerateMappingRequest) -> schemas.GenerateMappingResponse:
-    cfg = _load_config()
+def generate_mapping(
+    body: schemas.GenerateMappingRequest, case_id: str = DEFAULT_CASE_ID
+) -> schemas.GenerateMappingResponse:
+    cfg = _load_config(case_id)
     pi_norm = wizard.normalize_pi_df(cfg.pi_names_df)
     cgc_all = wizard.available_stages(pi_norm, "CGC")
     prc_all = wizard.available_stages(pi_norm, "PRC")
@@ -233,7 +237,7 @@ def generate_mapping(body: schemas.GenerateMappingRequest) -> schemas.GenerateMa
     )
 
 
-def commit_mapping(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
+def commit_mapping(body: schemas.MappingRowsRequest, case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
     """Validates/normalizes the edited PI mapping grid and persists it to
     Config_file.xlsx immediately (the other 7 sheets are carried forward
     unchanged from the current on-disk config -- see _cfg_rows())."""
@@ -241,27 +245,27 @@ def commit_mapping(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
     normalized = wizard.normalize_pi_df(df) if not df.empty else df
     rows = json.loads(normalized.to_json(orient="records")) if not normalized.empty else []
 
-    cfg = _load_config()
+    cfg = _load_config(case_id)
     payload = _cfg_rows(cfg)
     payload["pi_mapping_rows"] = rows
-    _write_all_sheets(**payload)
+    _write_all_sheets(case_id=case_id, **payload)
     return schemas.RowsResponse(rows=rows)
 
 
-def get_model_mapping() -> schemas.ModelMappingResponse:
-    cfg = _load_config()
-    df = _load_historian()
+def get_model_mapping(case_id: str = DEFAULT_CASE_ID) -> schemas.ModelMappingResponse:
+    cfg = _load_config(case_id)
+    df = _load_historian(case_id)
     return schemas.ModelMappingResponse(
         rows=json.loads(cfg.model_details_df.to_json(orient="records")) if not cfg.model_details_df.empty else [],
         historian_tags=sorted(df.columns.astype(str).tolist()),
     )
 
 
-def commit_model_mapping(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
-    cfg = _load_config()
+def commit_model_mapping(body: schemas.MappingRowsRequest, case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     payload = _cfg_rows(cfg)
     payload["model_details_rows"] = body.rows
-    _write_all_sheets(**payload)
+    _write_all_sheets(case_id=case_id, **payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
@@ -273,73 +277,73 @@ def commit_model_mapping(body: schemas.MappingRowsRequest) -> schemas.RowsRespon
 # via the explicit save_config() call below.
 # ---------------------------------------------------------------------------
 
-def get_section_order() -> schemas.RowsResponse:
-    cfg = _load_config()
+def get_section_order(case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     rows = json.loads(cfg.section_order_df.to_json(orient="records")) if not cfg.section_order_df.empty else []
     return schemas.RowsResponse(rows=rows)
 
 
-def commit_section_order(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
-    cfg = _load_config()
+def commit_section_order(body: schemas.MappingRowsRequest, case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     payload = _cfg_rows(cfg)
     payload["section_order_rows"] = body.rows
-    _write_all_sheets(**payload)
+    _write_all_sheets(case_id=case_id, **payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
-def get_mvdvcv_taglist() -> schemas.RowsResponse:
-    cfg = _load_config()
+def get_mvdvcv_taglist(case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     rows = json.loads(cfg.mvdvcv_df.to_json(orient="records")) if not cfg.mvdvcv_df.empty else []
     return schemas.RowsResponse(rows=rows)
 
 
-def commit_mvdvcv_taglist(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
-    cfg = _load_config()
+def commit_mvdvcv_taglist(body: schemas.MappingRowsRequest, case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     payload = _cfg_rows(cfg)
     payload["mvdvcv_rows"] = body.rows
-    _write_all_sheets(**payload)
+    _write_all_sheets(case_id=case_id, **payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
-def get_constraints() -> schemas.RowsResponse:
-    cfg = _load_config()
+def get_constraints(case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     rows = json.loads(cfg.constraints_df.to_json(orient="records")) if not cfg.constraints_df.empty else []
     return schemas.RowsResponse(rows=rows)
 
 
-def commit_constraints(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
-    cfg = _load_config()
+def commit_constraints(body: schemas.MappingRowsRequest, case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     payload = _cfg_rows(cfg)
     payload["constraints_rows"] = body.rows
-    _write_all_sheets(**payload)
+    _write_all_sheets(case_id=case_id, **payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
-def get_user_inputs() -> schemas.RowsResponse:
-    cfg = _load_config()
+def get_user_inputs(case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     rows = json.loads(cfg.user_inputs_df.to_json(orient="records")) if not cfg.user_inputs_df.empty else []
     return schemas.RowsResponse(rows=rows)
 
 
-def commit_user_inputs(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
-    cfg = _load_config()
+def commit_user_inputs(body: schemas.MappingRowsRequest, case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     payload = _cfg_rows(cfg)
     payload["user_inputs_rows"] = body.rows
-    _write_all_sheets(**payload)
+    _write_all_sheets(case_id=case_id, **payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
-def get_column_order() -> schemas.RowsResponse:
-    cfg = _load_config()
+def get_column_order(case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     rows = json.loads(cfg.display_order_df.to_json(orient="records")) if not cfg.display_order_df.empty else []
     return schemas.RowsResponse(rows=rows)
 
 
-def commit_column_order(body: schemas.MappingRowsRequest) -> schemas.RowsResponse:
-    cfg = _load_config()
+def commit_column_order(body: schemas.MappingRowsRequest, case_id: str = DEFAULT_CASE_ID) -> schemas.RowsResponse:
+    cfg = _load_config(case_id)
     payload = _cfg_rows(cfg)
     payload["display_order_rows"] = body.rows
-    _write_all_sheets(**payload)
+    _write_all_sheets(case_id=case_id, **payload)
     return schemas.RowsResponse(rows=body.rows)
 
 
@@ -352,21 +356,23 @@ def _target_section_response(section_order: List[str], target_section: str | Non
     )
 
 
-def get_target_section() -> schemas.TargetSectionResponse:
-    cfg = _load_config()
+def get_target_section(case_id: str = DEFAULT_CASE_ID) -> schemas.TargetSectionResponse:
+    cfg = _load_config(case_id)
     return _target_section_response(cfg.section_order_list(), cfg.target_section)
 
 
-def set_target_section(body: schemas.TargetSectionRequest) -> schemas.TargetSectionResponse:
+def set_target_section(
+    body: schemas.TargetSectionRequest, case_id: str = DEFAULT_CASE_ID
+) -> schemas.TargetSectionResponse:
     """Persists the chosen target_section into Config_file.xlsx immediately
     (the other 7 sheets are carried forward unchanged). The Dashboard/Case
     Setup also hold it client-side (ActiveWhatIfContext) and pass it
     explicitly to compute/tag-options/validation-filter for the current
     session, independent of what's saved here."""
-    cfg = _load_config()
+    cfg = _load_config(case_id)
     payload = _cfg_rows(cfg)
     payload["target_section"] = body.target_section
-    _write_all_sheets(**payload)
+    _write_all_sheets(case_id=case_id, **payload)
     return _target_section_response(cfg.section_order_list(), body.target_section)
 
 
@@ -389,6 +395,7 @@ def _write_all_sheets(
     section_order_rows: list,
     mvdvcv_rows: list,
     target_section: str | None,
+    case_id: str = DEFAULT_CASE_ID,
 ) -> None:
     """Writes all 8 sheets to Config_file.xlsx in one call -- shared by
     save_config() (all 8 sheets from the client at once) and every
@@ -423,12 +430,12 @@ def _write_all_sheets(
         )
 
     try:
-        _atomic_write_bytes(paths.config_file(), buf.getvalue())
+        _atomic_write_bytes(paths.config_file(case_id), buf.getvalue())
     except OSError as e:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Could not save the configuration to {paths.config_file()}: {e}. "
+                f"Could not save the configuration to {paths.config_file(case_id)}: {e}. "
                 "This usually means the file is currently open in Excel or being synced by OneDrive/cloud "
                 "storage — close it and try again."
             ),
@@ -456,7 +463,7 @@ def _cfg_rows(cfg: WhatIfConfig) -> Dict[str, Any]:
     }
 
 
-def save_config(body: schemas.ConfigSaveRequest) -> schemas.ConfigStatusResponse:
+def save_config(body: schemas.ConfigSaveRequest, case_id: str = DEFAULT_CASE_ID) -> schemas.ConfigStatusResponse:
     """Writes all 8 sheets to Config_file.xlsx in one call -- the wizard's
     primary persistence path, replacing the download-then-reupload round trip
     export_config()/upload_config() otherwise requires."""
@@ -469,38 +476,35 @@ def save_config(body: schemas.ConfigSaveRequest) -> schemas.ConfigStatusResponse
         section_order_rows=body.section_order_rows,
         mvdvcv_rows=body.mvdvcv_rows,
         target_section=body.target_section,
+        case_id=case_id,
     )
-    return get_config_status()
+    return get_config_status(case_id)
 
 
-_corr_cache: Dict[str, Any] = {"path": None, "mtime": None, "corr": None}
+_corr_cache: Dict[str, Dict[str, Any]] = {}
 _corr_cache_lock = threading.Lock()
 
 
-def get_correlation_matrix() -> schemas.CorrelationMatrixResponse:
-    path = paths.training_workbook()
+def get_correlation_matrix(case_id: str = DEFAULT_CASE_ID) -> schemas.CorrelationMatrixResponse:
+    path = paths.training_workbook(case_id)
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail=f"Training dataset not found at {path}")
     mtime = os.path.getmtime(path)
     with _corr_cache_lock:
-        if _corr_cache["path"] == path and _corr_cache["mtime"] == mtime:
-            corr = _corr_cache["corr"]
-        else:
-            corr = None
+        entry = _corr_cache.get(case_id)
+        corr = entry["corr"] if entry and entry["path"] == path and entry["mtime"] == mtime else None
     if corr is None:
-        df = _load_historian()
+        df = _load_historian(case_id)
         corr = df.corr(method="pearson", numeric_only=True).round(4)
         with _corr_cache_lock:
-            _corr_cache["path"] = path
-            _corr_cache["mtime"] = mtime
-            _corr_cache["corr"] = corr
+            _corr_cache[case_id] = {"path": path, "mtime": mtime, "corr": corr}
 
     matrix = [[None if pd.isna(v) else float(v) for v in row] for row in corr.to_numpy()]
     return schemas.CorrelationMatrixResponse(columns=corr.columns.tolist(), matrix=matrix, n_rows=len(corr))
 
 
-def get_accuracy_summary() -> schemas.AccuracySummaryResponse:
-    path = os.path.join(paths.model_dir(), "Model_accuracy_summary.csv")
+def get_accuracy_summary(case_id: str = DEFAULT_CASE_ID) -> schemas.AccuracySummaryResponse:
+    path = os.path.join(paths.model_dir(case_id), "Model_accuracy_summary.csv")
     if not os.path.isfile(path):
         return schemas.AccuracySummaryResponse(rows=[], available=False)
     df = pd.read_csv(path)
@@ -536,7 +540,9 @@ def export_config(body: schemas.ConfigExportRequest):
     )
 
 
-async def upload_training_data(file: UploadFile) -> schemas.TrainingDataUploadResponse:
+async def upload_training_data(
+    file: UploadFile, case_id: str = DEFAULT_CASE_ID
+) -> schemas.TrainingDataUploadResponse:
     data = await file.read()
     try:
         xl = pd.ExcelFile(io.BytesIO(data))
@@ -551,12 +557,13 @@ async def upload_training_data(file: UploadFile) -> schemas.TrainingDataUploadRe
         )
 
     try:
-        _atomic_write_bytes(paths.training_workbook(), data)
+        _atomic_write_bytes(paths.training_workbook(case_id), data)
     except OSError as e:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"The workbook was read successfully, but saving it to {paths.training_workbook()} failed: {e}. "
+                f"The workbook was read successfully, but saving it to "
+                f"{paths.training_workbook(case_id)} failed: {e}. "
                 "This usually means the file is currently open in Excel or being synced by OneDrive/cloud "
                 "storage — close it and try again."
             ),
@@ -564,24 +571,24 @@ async def upload_training_data(file: UploadFile) -> schemas.TrainingDataUploadRe
     return schemas.TrainingDataUploadResponse(saved=True, sheets_found=list(xl.sheet_names), missing_sheets=[])
 
 
-def _model_mapping_filled() -> bool:
+def _model_mapping_filled(case_id: str = DEFAULT_CASE_ID) -> bool:
     try:
-        cfg = _load_config()
+        cfg = _load_config(case_id)
     except HTTPException:
         return False
     return not cfg.model_details_df.dropna(how="all").empty
 
 
-def get_models_status() -> schemas.ModelStatusResponse:
+def get_models_status(case_id: str = DEFAULT_CASE_ID) -> schemas.ModelStatusResponse:
     try:
-        cfg = _load_config()
-        required_tags = model_status.required_kalman_tags(cfg.model_details_df)
+        cfg = _load_config(case_id)
+        required_tags = model_status.required_kalman_tags(cfg.model_details_df, case_id)
     except HTTPException:
         required_tags = []
-    status = model_status.check_models_trained(paths.model_dir(), required_tags)
-    raw_sim_present = os.path.isfile(paths.historian_file())
-    training_data_present = os.path.isfile(paths.training_workbook())
-    mapping_filled = _model_mapping_filled()
+    status = model_status.check_models_trained(paths.model_dir(case_id), required_tags)
+    raw_sim_present = os.path.isfile(paths.historian_file(case_id))
+    training_data_present = os.path.isfile(paths.training_workbook(case_id))
+    mapping_filled = _model_mapping_filled(case_id)
 
     # Mirrors Whatif_streamlit_dashboard.py's _train_blockers checklist.
     blockers: List[str] = []
@@ -609,14 +616,23 @@ def get_models_status() -> schemas.ModelStatusResponse:
     )
 
 
-def _run_training_subprocess() -> Dict[str, Any]:
+def _run_training_subprocess(case_id: str = DEFAULT_CASE_ID) -> Dict[str, Any]:
     """Runs the legacy training script exactly as the Streamlit reference did
     (subprocess, cwd=Scripts/ so its "..\\Data"/"..\\Results" relative paths
     resolve to the repo root), then re-checks the artifacts it should have
     produced. No config write-back: the script reads whatever Model details
-    mapping is currently saved to Data/Config_file.xlsx, same as upstream."""
+    mapping is currently saved to Data/Config_file.xlsx, same as upstream.
+
+    WHATIF_CASE_ID is passed through for forward-compatibility, but the
+    training script itself still writes to the flat Data/Results layout
+    unconditionally (case-aware retraining needs the Phase 3 script
+    regeneration described in the "Port updated Streamlit logic" plan
+    section, not yet done) — so this only fully works for the default case
+    today; non-default cases will retrain into the wrong folder until that
+    lands."""
     env = os.environ.copy()
     env["MPLBACKEND"] = "Agg"  # suppress plt.show() pop-ups in a headless subprocess
+    env["WHATIF_CASE_ID"] = case_id
     proc = subprocess.run(
         [sys.executable, paths.whatif_train_script()],
         cwd=paths.scripts_dir(),
@@ -625,12 +641,12 @@ def _run_training_subprocess() -> Dict[str, Any]:
         text=True,
     )
     try:
-        cfg = config_io.load_all_config(paths.config_file())
-        required_tags = model_status.required_kalman_tags(cfg.model_details_df)
+        cfg = config_io.load_all_config(paths.config_file(case_id))
+        required_tags = model_status.required_kalman_tags(cfg.model_details_df, case_id)
     except (config_io.ConfigSchemaError, OSError):
         required_tags = []
-    status = model_status.check_models_trained(paths.model_dir(), required_tags)
-    raw_sim_present = os.path.isfile(paths.historian_file())
+    status = model_status.check_models_trained(paths.model_dir(case_id), required_tags)
+    raw_sim_present = os.path.isfile(paths.historian_file(case_id))
     success = proc.returncode == 0 and (status.pkl_count > 0 or raw_sim_present)
     return {
         "success": success,
@@ -643,11 +659,11 @@ def _run_training_subprocess() -> Dict[str, Any]:
     }
 
 
-def train_models() -> str:
-    status = get_models_status()
+def train_models(case_id: str = DEFAULT_CASE_ID) -> str:
+    status = get_models_status(case_id)
     if not status.can_train:
         raise HTTPException(status_code=422, detail="; ".join(status.train_blockers))
-    return job_manager.submit(_run_training_subprocess, progress_mode="none")
+    return job_manager.submit(_run_training_subprocess, case_id, progress_mode="none")
 
 
 # ---------------------------------------------------------------------------
@@ -685,13 +701,15 @@ def _load_plugin():
     return plants.load_plant_formulas()
 
 
-def get_tag_options(body: schemas.TagOptionsRequest) -> schemas.TagOptionsResponse:
+def get_tag_options(
+    body: schemas.TagOptionsRequest, case_id: str = DEFAULT_CASE_ID
+) -> schemas.TagOptionsResponse:
     """3-tier source resolution: wizard-generated tags -> config 'user inputs'
     sheet -> full historian dropdown fallback (ported from the dashboard tab's
     Source A/B/C logic). When target_section is given, all_tags is scoped to
     PI tags belonging to the target section or an upstream one."""
-    cfg = _load_config()
-    df = _load_historian()
+    cfg = _load_config(case_id)
+    df = _load_historian(case_id)
     all_tags = sorted(df.columns.astype(str).tolist())
 
     if body.target_section and not cfg.pi_names_df.empty and "Section" in cfg.pi_names_df.columns:
@@ -731,14 +749,14 @@ def get_tag_options(body: schemas.TagOptionsRequest) -> schemas.TagOptionsRespon
     return schemas.TagOptionsResponse(tags=tags, all_tags=all_tags, source=source, limits=limits)
 
 
-def get_dates() -> schemas.DatesResponse:
-    df = _load_historian()
+def get_dates(case_id: str = DEFAULT_CASE_ID) -> schemas.DatesResponse:
+    df = _load_historian(case_id)
     dates = sorted(pd.Series(df.index.date).unique())
     return schemas.DatesResponse(dates=[d.isoformat() for d in dates])
 
 
-def get_timestamps(date: str) -> schemas.TimestampsResponse:
-    df = _load_historian()
+def get_timestamps(date: str, case_id: str = DEFAULT_CASE_ID) -> schemas.TimestampsResponse:
+    df = _load_historian(case_id)
     try:
         target = pd.Timestamp(date).date()
     except ValueError:
@@ -747,8 +765,8 @@ def get_timestamps(date: str) -> schemas.TimestampsResponse:
     return schemas.TimestampsResponse(timestamps=[ts.strftime("%Y-%m-%d %H:%M:%S") for ts in stamps])
 
 
-def get_baseline(timestamp: str, tags: List[str]) -> schemas.BaselineResponse:
-    df = _load_historian()
+def get_baseline(timestamp: str, tags: List[str], case_id: str = DEFAULT_CASE_ID) -> schemas.BaselineResponse:
+    df = _load_historian(case_id)
     ts = pd.Timestamp(timestamp)
     if ts not in df.index:
         raise HTTPException(status_code=404, detail=f"Timestamp {timestamp} not found in historian.")
@@ -767,12 +785,14 @@ def get_baseline(timestamp: str, tags: List[str]) -> schemas.BaselineResponse:
     return schemas.BaselineResponse(values=values)
 
 
-def run_scenario(body: schemas.WhatIfScenarioRequest) -> schemas.WhatIfScenarioResponse:
+def run_scenario(
+    body: schemas.WhatIfScenarioRequest, case_id: str = DEFAULT_CASE_ID
+) -> schemas.WhatIfScenarioResponse:
     """The core call: loads historian + config once, runs whatif_analysis()
     exactly once. Never decomposed into per-tag endpoints — the pipeline is
     order-dependent with a mid-pipeline constraint short-circuit."""
-    df = _load_historian()
-    cfg = _load_config()
+    df = _load_historian(case_id)
+    cfg = _load_config(case_id)
     try:
         ts = pd.Timestamp(body.timestamp)
     except ValueError:
@@ -787,16 +807,17 @@ def run_scenario(body: schemas.WhatIfScenarioRequest) -> schemas.WhatIfScenarioR
 
     output_path = None
     if body.write_actual_vs_estimated_xlsx:
-        output_path = paths.actual_vs_estimated_file(ts.strftime("%Y%m%d_%H%M%S"))
+        output_path = paths.actual_vs_estimated_file(ts.strftime("%Y%m%d_%H%M%S"), case_id)
 
     plugin = _load_plugin()
     try:
         result = engine.whatif_analysis(
-            df, ts, user_input_df, cfg, paths.model_dir(),
+            df, ts, user_input_df, cfg, paths.model_dir(case_id),
             plugin=plugin,
             target_section=body.target_section,
             write_actual_vs_estimated_xlsx=body.write_actual_vs_estimated_xlsx,
             output_path=output_path,
+            case_id=case_id,
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=422, detail=f"A required model artifact is missing: {e}")
@@ -830,12 +851,14 @@ def run_scenario(body: schemas.WhatIfScenarioRequest) -> schemas.WhatIfScenarioR
     )
 
 
-def run_validation_filter(body: schemas.ValidationFilterRequest) -> schemas.ValidationFilterResponse:
+def run_validation_filter(
+    body: schemas.ValidationFilterRequest, case_id: str = DEFAULT_CASE_ID
+) -> schemas.ValidationFilterResponse:
     """Default shortlist of filterable parameters: the same derived tag set
     used for KPI tiles (see kpi.derive_kpi_tags's docstring for why there's
     no clean upstream equivalent of the old hardcoded VALIDATION_TAGS list)."""
-    df = _load_historian()
-    cfg = _load_config()
+    df = _load_historian(case_id)
+    cfg = _load_config(case_id)
     plugin = _load_plugin()
     available = [t for t in kpi.derive_kpi_tags(cfg, plugin) if t in df.columns]
     available = kpi.apply_preferred_order(available, cfg.display_order_df)

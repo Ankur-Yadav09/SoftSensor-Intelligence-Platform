@@ -14,6 +14,7 @@ captured at training time.
 from __future__ import annotations
 
 from src.data.database import (
+    DEFAULT_CASE_ID,
     clear_model_selection as _clear_model_selection,
     list_datasets_from_db,
     list_model_selections,
@@ -26,19 +27,19 @@ from backend.app.schemas.datasets import DatasetSummary
 from backend.app.schemas.overview import OverviewResponse, SavedModelSummary
 
 
-def get_overview() -> OverviewResponse:
+def get_overview(case_id: str = DEFAULT_CASE_ID) -> OverviewResponse:
     datasets = [
         DatasetSummary(name=r[0], uploaded_at=r[1], rows=r[2], cols=r[3])
-        for r in list_datasets_from_db()  # src.data.database — unchanged
+        for r in list_datasets_from_db()  # global across cases -- unchanged
     ]
 
     registry_by_name = {
-        r["model_name"]: r for r in list_models_from_registry()  # unchanged
+        r["model_name"]: r for r in list_models_from_registry(case_id)
     }
-    selections = list_model_selections()  # {parameter: model_name}
+    selections = list_model_selections(case_id)  # {parameter: model_name}
 
     saved_models = []
-    for m in list_saved_models_on_disk():  # src.persistence.model_store — unchanged
+    for m in list_saved_models_on_disk(case_id):
         reg = registry_by_name.get(m["name"])
         y_cols = m.get("y_cols", [])
         saved_models.append(
@@ -64,24 +65,26 @@ def get_overview() -> OverviewResponse:
     return OverviewResponse(datasets=datasets, saved_models=saved_models)
 
 
-def select_model_for_parameter(parameter: str, model_name: str) -> OverviewResponse:
+def select_model_for_parameter(
+    parameter: str, model_name: str, case_id: str = DEFAULT_CASE_ID
+) -> OverviewResponse:
     """Mark model_name as the active Soft Sensor model for parameter — the
     "Use for What-If Analysis" action on Experiment History. Validates the
     model actually exists on disk and predicts that parameter, so a stale or
     mismatched (parameter, model_name) pair can't silently get wired in."""
-    models_on_disk = {m["name"]: m for m in list_saved_models_on_disk()}
+    models_on_disk = {m["name"]: m for m in list_saved_models_on_disk(case_id)}
     model = models_on_disk.get(model_name)
     if model is None:
         raise ValueError(f"No saved model named '{model_name}'.")
     if parameter not in model.get("y_cols", []):
         raise ValueError(f"Model '{model_name}' does not predict parameter '{parameter}'.")
 
-    _set_model_selection(parameter, model_name)
-    return get_overview()
+    _set_model_selection(parameter, model_name, case_id)
+    return get_overview(case_id)
 
 
-def clear_model_selection(parameter: str) -> OverviewResponse:
+def clear_model_selection(parameter: str, case_id: str = DEFAULT_CASE_ID) -> OverviewResponse:
     """Un-pick the selected experiment for parameter, reverting it to the
     dedicated Kalman-filter fallback in src/whatif/engine.py."""
-    _clear_model_selection(parameter)
-    return get_overview()
+    _clear_model_selection(parameter, case_id)
+    return get_overview(case_id)
