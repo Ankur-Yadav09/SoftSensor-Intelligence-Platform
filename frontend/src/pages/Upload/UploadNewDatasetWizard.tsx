@@ -13,8 +13,8 @@ const ACCEPTED_EXTENSIONS = ['.csv', '.xlsx', '.xls']
 const MAX_FILE_MB = 200
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(3)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(3)} MB`
 }
 
 function WizardStepBadge({ n, active, done }: { n: number; active: boolean; done: boolean }) {

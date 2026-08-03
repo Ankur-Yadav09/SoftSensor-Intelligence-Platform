@@ -17,10 +17,10 @@ export function KpiCard({ name, r2, mae }: KpiCardProps) {
         {name}
       </div>
       <div className="metric-value">
-        {gradeEmoji(r2)} R² {r2.toFixed(4)}
+        {gradeEmoji(r2)} R² {r2.toFixed(3)}
       </div>
       <div className="caption" style={{ marginTop: '0.25rem' }}>
-        MAE {mae.toFixed(4)}
+        MAE {mae.toFixed(3)}
       </div>
     </div>
   )

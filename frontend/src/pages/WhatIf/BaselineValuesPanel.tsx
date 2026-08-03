@@ -30,7 +30,7 @@ export function BaselineValuesPanel({ timestamp, tags }: BaselineValuesPanelProp
               { header: 'Parameter', render: (r) => r.parameter },
               {
                 header: 'Current Value',
-                render: (r) => (typeof r.value === 'number' ? r.value.toFixed(2) : String(r.value ?? '')),
+                render: (r) => (typeof r.value === 'number' ? r.value.toFixed(3) : String(r.value ?? '')),
               },
             ]}
             rows={rows}

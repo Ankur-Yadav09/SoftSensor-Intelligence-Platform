@@ -4,7 +4,7 @@ import { commitConstraints, getConstraints } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import type { ConstraintsRow } from '../../api/types'
 
-const VALUE_FIELDS: (keyof ConstraintsRow)[] = ['user input value', 'Max vlaue', 'UOM', 'Remark']
+const VALUE_FIELDS: (keyof ConstraintsRow)[] = ['user input value', 'Max vlaue', 'UOM']
 const ACTIONS = ['', 'bump_linked_to_max', 'abort_if_exceeds']
 
 interface ConstraintsEditorProps {

@@ -44,7 +44,7 @@ export function MiniBoxplot({ min, q1, median, q3, max, title }: MiniBoxplotProp
           ['max', max],
         ].map(([label, v]) => (
           <text key={label as string} x={scale(v as number)} y={midY + boxHeight / 2 + 18} fontSize="9" fill="var(--text-caption)" textAnchor="middle">
-            {(v as number).toFixed(2)}
+            {(v as number).toFixed(3)}
           </text>
         ))}
       </svg>

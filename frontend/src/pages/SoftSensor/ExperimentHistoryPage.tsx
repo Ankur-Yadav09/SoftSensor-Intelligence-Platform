@@ -5,7 +5,7 @@ import { Callout } from '../../components/Callout'
 import type { SavedModelSummary } from '../../api/types'
 
 function fmt(value: number | null): string {
-  return value != null ? value.toFixed(4) : '—'
+  return value != null ? value.toFixed(3) : '—'
 }
 
 // The <details> reveal for X Features needs the FULL list actually visible

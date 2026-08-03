@@ -51,26 +51,26 @@ export function DataUnderstandingTab({ datasetName, numericCols }: DataUnderstan
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '1rem' }}>
             <Stat label="Total Records" value={String(d.n_total)} />
-            <Stat label="Missing" value={`${d.n_missing} (${((d.n_missing / d.n_total) * 100).toFixed(1)}%)`} />
+            <Stat label="Missing" value={`${d.n_missing} (${((d.n_missing / d.n_total) * 100).toFixed(3)}%)`} />
             <Stat label="Unique Values" value={String(d.n_unique)} />
             <Stat label="Duplicate Rows" value={String(d.n_duplicate_rows)} />
             <Stat label="Outliers (IQR)" value={String(d.n_outliers_iqr)} />
             <Stat label="Skewness" value={d.skew!.toFixed(3)} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '1rem' }}>
-            <Stat label="Min" value={d.min!.toPrecision(4)} />
-            <Stat label="Max" value={d.max!.toPrecision(4)} />
-            <Stat label="Mean" value={d.mean!.toPrecision(4)} />
-            <Stat label="Median" value={d.median!.toPrecision(4)} />
-            <Stat label="Std Dev" value={d.std!.toPrecision(4)} />
+            <Stat label="Min" value={d.min!.toFixed(3)} />
+            <Stat label="Max" value={d.max!.toFixed(3)} />
+            <Stat label="Mean" value={d.mean!.toFixed(3)} />
+            <Stat label="Median" value={d.median!.toFixed(3)} />
+            <Stat label="Std Dev" value={d.std!.toFixed(3)} />
             <Stat label="Kurtosis" value={d.kurtosis!.toFixed(3)} />
           </div>
 
           <Callout variant="info">
             <strong>{d.column}</strong> — {d.distribution_label?.toLowerCase()} distribution (skew ={' '}
-            {d.skew!.toFixed(3)}, kurtosis = {d.kurtosis!.toFixed(3)}). Range: {d.min!.toPrecision(4)} →{' '}
-            {d.max!.toPrecision(4)}, mean ± σ = {d.mean!.toPrecision(4)} ± {d.std!.toPrecision(4)}.
-            {d.n_missing! > 0 && ` ${d.n_missing} missing values (${((d.n_missing! / d.n_total) * 100).toFixed(1)}%).`}
+            {d.skew!.toFixed(3)}, kurtosis = {d.kurtosis!.toFixed(3)}). Range: {d.min!.toFixed(3)} →{' '}
+            {d.max!.toFixed(3)}, mean ± σ = {d.mean!.toFixed(3)} ± {d.std!.toFixed(3)}.
+            {d.n_missing! > 0 && ` ${d.n_missing} missing values (${((d.n_missing! / d.n_total) * 100).toFixed(3)}%).`}
             {d.n_outliers_iqr! > 0 && ` ${d.n_outliers_iqr} potential outliers (IQR method).`}
             {Math.abs(d.skew!) > 1 && ' High skewness — consider transformation.'}
           </Callout>

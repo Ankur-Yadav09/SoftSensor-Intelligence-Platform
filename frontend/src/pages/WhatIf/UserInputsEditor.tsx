@@ -4,7 +4,7 @@ import { commitUserInputs, getUserInputs } from '../../api/whatIf'
 import { Callout } from '../../components/Callout'
 import type { UserInputsRow } from '../../api/types'
 
-const VALUE_FIELDS: (keyof UserInputsRow)[] = ['Value', 'Lower Limit', 'Upper Limit', 'Remark']
+const VALUE_FIELDS: (keyof UserInputsRow)[] = ['Lower Limit', 'Upper Limit']
 
 interface UserInputsEditorProps {
   /** Parameter dropdown options (section-scoped tags). Falls back to a

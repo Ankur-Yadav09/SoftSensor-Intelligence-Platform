@@ -52,8 +52,8 @@ function OverviewTab({ result }: { result: FeatureSelectionResult }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
         <Stat label="Total Rows" value={String(info.n_rows)} />
         <Stat label="Clean Features" value={String(info.n_clean_features)} />
-        <Stat label="Missing % (X)" value={`${info.missing_pct_x.toFixed(1)}%`} />
-        <Stat label="Missing % (Y)" value={`${info.missing_pct_y.toFixed(1)}%`} />
+        <Stat label="Missing % (X)" value={`${info.missing_pct_x.toFixed(3)}%`} />
+        <Stat label="Missing % (Y)" value={`${info.missing_pct_y.toFixed(3)}%`} />
       </div>
 
       {info.constant_features.length > 0 && (
@@ -98,7 +98,7 @@ function OverviewTab({ result }: { result: FeatureSelectionResult }) {
           emptyMessage="No VIF data."
           columns={[
             { header: 'Feature', render: (v) => v.Feature },
-            { header: 'VIF', render: (v) => (v.VIF != null ? v.VIF.toFixed(2) : '—') },
+            { header: 'VIF', render: (v) => (v.VIF != null ? v.VIF.toFixed(3) : '—') },
             { header: 'Level', render: (v) => v.VIF_Level },
           ]}
         />
@@ -120,12 +120,12 @@ function ConsensusTab({ result }: { result: FeatureSelectionResult }) {
         columns={[
           { header: 'Rank', render: (r) => r.Rank },
           { header: 'Feature', render: (r) => <code>{r.Feature}</code> },
-          { header: 'Sel. Freq %', render: (r) => r.SelectionFreq.toFixed(1) },
-          { header: 'Predictive Strength', render: (r) => r.PredictiveStrength.toFixed(1) },
-          { header: 'Stability', render: (r) => r.StabilityScore.toFixed(1) },
-          { header: 'Final Score', render: (r) => r.FinalScore.toFixed(1) },
+          { header: 'Sel. Freq %', render: (r) => r.SelectionFreq.toFixed(3) },
+          { header: 'Predictive Strength', render: (r) => r.PredictiveStrength.toFixed(3) },
+          { header: 'Stability', render: (r) => r.StabilityScore.toFixed(3) },
+          { header: 'Final Score', render: (r) => r.FinalScore.toFixed(3) },
           { header: 'Corr w/ Target', render: (r) => (r.CorrWithTarget != null ? r.CorrWithTarget.toFixed(3) : '—') },
-          { header: 'VIF', render: (r) => (r.VIF != null ? r.VIF.toFixed(2) : '—') },
+          { header: 'VIF', render: (r) => (r.VIF != null ? r.VIF.toFixed(3) : '—') },
           {
             header: 'Recommendation',
             render: (r) => (
@@ -174,15 +174,15 @@ function RecommendationsTab({ result }: { result: FeatureSelectionResult }) {
                       fontWeight: 700,
                     }}
                   >
-                    {expanded.has(r.Feature) ? '▾' : '▸'} {r.Feature} — Final Score: {r.FinalScore.toFixed(0)}
+                    {expanded.has(r.Feature) ? '▾' : '▸'} {r.Feature} — Final Score: {r.FinalScore.toFixed(3)}
                   </button>
                   {expanded.has(r.Feature) && (
                     <div style={{ marginTop: '0.75rem' }}>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                        <Stat label="Final Score" value={r.FinalScore.toFixed(0)} />
-                        <Stat label="Predictive Strength" value={r.PredictiveStrength.toFixed(1)} />
-                        <Stat label="Stability" value={r.StabilityScore.toFixed(1)} />
-                        <Stat label="VIF" value={r.VIF != null ? r.VIF.toFixed(1) : '—'} />
+                        <Stat label="Final Score" value={r.FinalScore.toFixed(3)} />
+                        <Stat label="Predictive Strength" value={r.PredictiveStrength.toFixed(3)} />
+                        <Stat label="Stability" value={r.StabilityScore.toFixed(3)} />
+                        <Stat label="VIF" value={r.VIF != null ? r.VIF.toFixed(3) : '—'} />
                       </div>
                       <div
                         className="caption reasoning"
@@ -230,18 +230,18 @@ function MethodDetailsTab({ result }: { result: FeatureSelectionResult }) {
             const rec = corrByFeature.get(feat)
             for (const yc of corrYCols) {
               const val = rec ? Number(rec[yc]) : NaN
-              row[yc] = Number.isFinite(val) ? val.toFixed(4) : '—'
+              row[yc] = Number.isFinite(val) ? val.toFixed(3) : '—'
             }
-            row['Avg |r|'] = m.raw_scores[feat]?.toFixed(5) ?? '—'
+            row['Avg |r|'] = m.raw_scores[feat]?.toFixed(3) ?? '—'
           } else {
             if (hasPerY) {
               for (const yc of yColNames) {
-                row[`${yc} Raw`] = m.per_target_scores[feat]?.[yc]?.toFixed(5) ?? '—'
+                row[`${yc} Raw`] = m.per_target_scores[feat]?.[yc]?.toFixed(3) ?? '—'
               }
             }
-            row['Avg Raw'] = m.raw_scores[feat]?.toFixed(5) ?? '—'
+            row['Avg Raw'] = m.raw_scores[feat]?.toFixed(3) ?? '—'
           }
-          row['Norm Score'] = m.all_scores[feat]?.toFixed(4) ?? '—'
+          row['Norm Score'] = m.all_scores[feat]?.toFixed(3) ?? '—'
           return row
         })
 

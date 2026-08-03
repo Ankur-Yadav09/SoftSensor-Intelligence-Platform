@@ -9,6 +9,14 @@ import type { ModelDetailsRow, MvDvCvTagRow, PiMappingRow } from '../../api/type
 
 const INPUT_COLS = Array.from({ length: 8 }, (_, i) => `Input parameter_${i + 1}`)
 const STICKY_COL_WIDTH = 200
+// Matches src/whatif/config_io.py::_is_data_model() exactly: blank/"Data
+// model" is Kalman/Soft-Sensor-driven (the default); anything else — here,
+// "First principle" — is simulation-owned. A First-Principle parameter's
+// value comes from the plant physics plugin (src/whatif/plants/
+// yanpet_olf1_formulas.py, matching Scripts/yanpet_olf1_formulas.py's HOOKS/
+// SIMULATION contract) instead of a trained model — the engine skips Kalman/
+// Soft-Sensor prediction for it entirely (src/whatif/engine.py::whatif_analysis).
+const MODEL_TYPE_OPTIONS = ['', 'Data model', 'First principle']
 
 // The highest input-column index actually filled in across every row (at
 // least 1) — so a workbook that already has, say, 5 input tags saved never
@@ -128,6 +136,7 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
                 Predicted parameter
               </th>
               <th style={{ width: 130 }}>Section</th>
+              <th style={{ width: 150 }}>Model Type</th>
               {visibleInputCols.map((c, i) => (
                 <th key={c} title={c} style={{ width: 180 }}>
                   In {i + 1}
@@ -158,6 +167,19 @@ export function ModelMappingEditor({ allowed, piRows, mvdvcvRows, sectionOptions
                     {sectionChoices.map((s) => (
                       <option key={s} value={s}>
                         {s || '—'}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td style={{ verticalAlign: 'middle' }}>
+                  <select
+                    value={rows[i]['model type'] ?? ''}
+                    onChange={(e) => updateCell(i, 'model type', e.target.value)}
+                    style={{ width: '100%', boxSizing: 'border-box' }}
+                  >
+                    {MODEL_TYPE_OPTIONS.map((t) => (
+                      <option key={t} value={t}>
+                        {t || '—'}
                       </option>
                     ))}
                   </select>

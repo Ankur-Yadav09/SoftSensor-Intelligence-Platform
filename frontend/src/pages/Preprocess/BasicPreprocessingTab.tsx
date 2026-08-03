@@ -287,7 +287,7 @@ export function BasicPreprocessingTab({ datasetName, numericCols, stats, onClean
                     <div key={tag} className="card" style={{ padding: '0.75rem 1rem' }}>
                       <div style={{ fontWeight: 700, color: 'var(--primary)' }}>{tag}</div>
                       <div className="caption">
-                        Data range: {statsByFeature[tag]?.Min?.toPrecision(4)} — {statsByFeature[tag]?.Max?.toPrecision(4)}
+                        Data range: {statsByFeature[tag]?.Min?.toFixed(3)} — {statsByFeature[tag]?.Max?.toFixed(3)}
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
                         <label>

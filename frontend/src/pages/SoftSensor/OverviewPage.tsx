@@ -55,7 +55,7 @@ export function SoftSensorOverviewPage() {
           tone={savedModels.some((m) => m.avg_r2 != null) ? 'success' : 'warning'}
           value={
             savedModels.some((m) => m.avg_r2 != null)
-              ? Math.max(...savedModels.map((m) => m.avg_r2 ?? -Infinity)).toFixed(4)
+              ? Math.max(...savedModels.map((m) => m.avg_r2 ?? -Infinity)).toFixed(3)
               : '—'
           }
         />
@@ -87,27 +87,27 @@ export function SoftSensorOverviewPage() {
               <StatusCard
                 label="Train R² / RMSE / MAE"
                 tone={activeSummary.train_r2 != null ? 'info' : 'warning'}
-                value={activeSummary.train_r2 != null ? activeSummary.train_r2.toFixed(4) : '—'}
+                value={activeSummary.train_r2 != null ? activeSummary.train_r2.toFixed(3) : '—'}
                 sublabel={
                   activeSummary.train_rmse != null && activeSummary.train_mae != null
-                    ? `RMSE ${activeSummary.train_rmse.toFixed(4)} · MAE ${activeSummary.train_mae.toFixed(4)}`
+                    ? `RMSE ${activeSummary.train_rmse.toFixed(3)} · MAE ${activeSummary.train_mae.toFixed(3)}`
                     : 'Not available for this model'
                 }
               />
               <StatusCard
                 label="Test R² / RMSE / MAE"
                 tone={activeSummary.avg_r2 != null ? 'success' : 'warning'}
-                value={activeSummary.avg_r2 != null ? activeSummary.avg_r2.toFixed(4) : '—'}
+                value={activeSummary.avg_r2 != null ? activeSummary.avg_r2.toFixed(3) : '—'}
                 sublabel={
                   activeSummary.avg_rmse != null && activeSummary.avg_mae != null
-                    ? `RMSE ${activeSummary.avg_rmse.toFixed(4)} · MAE ${activeSummary.avg_mae.toFixed(4)}`
+                    ? `RMSE ${activeSummary.avg_rmse.toFixed(3)} · MAE ${activeSummary.avg_mae.toFixed(3)}`
                     : 'Not available for this model'
                 }
               />
             </div>
             {activeSummary.train_r2 != null && activeSummary.avg_r2 != null && (
               <p className="caption">
-                Gap (Train − Test) = <code>{(activeSummary.train_r2 - activeSummary.avg_r2).toFixed(4)}</code> — a
+                Gap (Train − Test) = <code>{(activeSummary.train_r2 - activeSummary.avg_r2).toFixed(3)}</code> — a
                 large gap means the model fits its training data much better than unseen data (overfitting). For a
                 detailed per-target breakdown, run this model on the Predict page's Project Test Split.
               </p>
@@ -164,8 +164,8 @@ export function SoftSensorOverviewPage() {
               { header: 'Name', render: (m) => m.name },
               { header: 'Algorithm', render: (m) => m.algorithm ?? '—' },
               { header: 'Saved At', render: (m) => m.saved_at },
-              { header: 'Train R²', render: (m) => (m.train_r2 != null ? m.train_r2.toFixed(4) : '—') },
-              { header: 'Test R²', render: (m) => (m.avg_r2 != null ? m.avg_r2.toFixed(4) : '—') },
+              { header: 'Train R²', render: (m) => (m.train_r2 != null ? m.train_r2.toFixed(3) : '—') },
+              { header: 'Test R²', render: (m) => (m.avg_r2 != null ? m.avg_r2.toFixed(3) : '—') },
             ]}
           />
         </div>

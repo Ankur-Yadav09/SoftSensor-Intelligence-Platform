@@ -75,7 +75,7 @@ export function FinalApply({ datasetName, xCols, yCols }: FinalApplyProps) {
             </select>
           </label>
           <label>
-            <div className="caption">Train Ratio: {(trainRatio * 100).toFixed(0)}%</div>
+            <div className="caption">Train Ratio: {(trainRatio * 100).toFixed(3)}%</div>
             <input
               type="range"
               min={0.5}

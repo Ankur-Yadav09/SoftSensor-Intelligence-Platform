@@ -52,7 +52,7 @@ export function CorrelationMatrixView() {
                 </td>
                 {row.map((value, j) => (
                   <td key={j} style={cellStyle(value)}>
-                    {value === null ? '' : value.toFixed(2)}
+                    {value === null ? '' : value.toFixed(3)}
                   </td>
                 ))}
               </tr>

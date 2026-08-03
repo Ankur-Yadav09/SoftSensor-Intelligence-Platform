@@ -16,11 +16,7 @@ interface LineChartProps {
 
 function formatNum(v: number) {
   if (!Number.isFinite(v)) return '—'
-  const abs = Math.abs(v)
-  if (abs === 0) return '0'
-  if (abs >= 100) return v.toFixed(0)
-  if (abs >= 1) return v.toFixed(2)
-  return v.toFixed(4)
+  return v.toFixed(3)
 }
 
 // Plain-SVG multi-series line chart — no charting library dependency,

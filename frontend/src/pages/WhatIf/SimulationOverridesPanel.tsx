@@ -10,7 +10,7 @@ function validate(raw: string, lower: number, upper: number): string | null {
   if (!raw.trim()) return null
   const value = Number(raw)
   if (Number.isNaN(value)) return 'Numeric input required'
-  if (value < lower || value > upper) return `Value must be between ${lower.toLocaleString()} and ${upper.toLocaleString()}`
+  if (value < lower || value > upper) return `Value must be between ${lower.toFixed(3)} and ${upper.toFixed(3)}`
   return null
 }
 
@@ -56,7 +56,7 @@ export function SimulationOverridesPanel({ tags, limits, overrides, onChange, on
           return (
             <div key={tag}>
               <div style={{ fontWeight: 600 }}>{tag}</div>
-              <div className="caption">Boundary range: {lim.lower.toLocaleString()} → {lim.upper.toLocaleString()}</div>
+              <div className="caption">Boundary range: {lim.lower.toFixed(3)} → {lim.upper.toFixed(3)}</div>
               <input
                 type="number"
                 value={raw}

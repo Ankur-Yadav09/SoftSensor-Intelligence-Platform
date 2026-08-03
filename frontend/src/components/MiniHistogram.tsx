@@ -34,10 +34,10 @@ export function MiniHistogram({ counts, binEdges, title }: MiniHistogramProps) {
         })}
         <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="var(--border)" />
         <text x={padding} y={height - 8} fontSize="10" fill="var(--text-caption)">
-          {binEdges[0].toFixed(2)}
+          {binEdges[0].toFixed(3)}
         </text>
         <text x={width - padding} y={height - 8} fontSize="10" fill="var(--text-caption)" textAnchor="end">
-          {binEdges[binEdges.length - 1].toFixed(2)}
+          {binEdges[binEdges.length - 1].toFixed(3)}
         </text>
       </svg>
     </div>

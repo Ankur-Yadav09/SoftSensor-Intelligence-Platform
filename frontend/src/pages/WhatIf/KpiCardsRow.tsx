@@ -2,7 +2,7 @@ import type { WhatIfKpi } from '../../api/types'
 
 function fmtNum(val: number, forceSign = false): string {
   const sign = forceSign && val > 0 ? '+' : ''
-  return Math.abs(val) >= 1000 ? `${sign}${val.toFixed(0)}` : `${sign}${val.toFixed(1)}`
+  return `${sign}${val.toFixed(3)}`
 }
 
 function WhatIfKpiCard({ kpi }: { kpi: WhatIfKpi }) {

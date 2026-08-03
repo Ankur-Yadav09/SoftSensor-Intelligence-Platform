@@ -3,10 +3,7 @@ import { downloadBlob } from '../../api/whatIf'
 import type { WhatIfScenarioRow } from '../../api/types'
 
 function fmt(val: unknown): string {
-  if (typeof val === 'number') {
-    const s = val.toFixed(2)
-    return s.replace(/\.?0+$/, '') || '0'
-  }
+  if (typeof val === 'number') return val.toFixed(3)
   return val == null ? '' : String(val)
 }
 

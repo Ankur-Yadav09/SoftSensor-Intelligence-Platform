@@ -187,7 +187,7 @@ export function PredictPage() {
                     {result.metrics.map((row, i) => (
                       <tr key={i}>
                         {Object.values(row).map((v, j) => (
-                          <td key={j}>{typeof v === 'number' ? v.toFixed(4) : String(v)}</td>
+                          <td key={j}>{typeof v === 'number' ? v.toFixed(3) : String(v)}</td>
                         ))}
                       </tr>
                     ))}
@@ -219,7 +219,7 @@ export function PredictPage() {
                   {previewRows.map((row, i) => (
                     <tr key={i}>
                       {Object.values(row).map((v, j) => (
-                        <td key={j}>{typeof v === 'number' ? v.toFixed(4) : String(v)}</td>
+                        <td key={j}>{typeof v === 'number' ? v.toFixed(3) : String(v)}</td>
                       ))}
                     </tr>
                   ))}
