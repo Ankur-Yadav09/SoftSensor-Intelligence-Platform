@@ -31,12 +31,21 @@ export function Tabs({ tabs, defaultIndex = 0, activeIndex, onChange }: TabsProp
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid var(--border)', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          width: '100%',
+          borderBottom: '1px solid var(--border)',
+          marginBottom: '1.25rem',
+        }}
+      >
         {tabs.map((tab, i) => (
           <button
             key={tab.label}
             onClick={() => select(i)}
             style={{
+              flex: '1 1 0%',
+              minWidth: 0,
               background: 'transparent',
               boxShadow: 'none',
               color: active === i ? 'var(--primary)' : 'var(--text-caption)',
@@ -46,7 +55,9 @@ export function Tabs({ tabs, defaultIndex = 0, activeIndex, onChange }: TabsProp
               padding: '0.6rem 0.9rem',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '0.4rem',
+              textAlign: 'center',
             }}
           >
             {tab.label}

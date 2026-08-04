@@ -36,6 +36,29 @@ _config_cache: Dict[str, Dict[str, Any]] = {}
 _config_cache_lock = threading.Lock()
 
 
+def _empty_config() -> WhatIfConfig:
+    """A brand-new case has no Config_file.xlsx on disk at all yet --
+    whatif_case_service.create_case() deliberately creates blank folders,
+    no files (matching the Streamlit reference's "build it all fresh from
+    Setup" new-case flow). That's the normal starting state for a case, not
+    an error: every get_*/commit_* endpoint should see the same well-shaped
+    "nothing saved yet" config get_config_status() already special-cased
+    for this — not a 404 that leaves the frontend's cached data from
+    whichever case was active before untouched (query errors don't clear
+    react-query's `data`), which is exactly the "new case shows the old
+    case's tables" bug this fixes."""
+    return WhatIfConfig(
+        user_inputs_df=pd.DataFrame(columns=config_io.USER_INPUTS_COLUMNS),
+        constraints_df=pd.DataFrame(columns=config_io.CONSTRAINTS_COLUMNS),
+        display_order_df=pd.DataFrame(columns=config_io.DISPLAY_ORDER_COLUMNS),
+        model_details_df=pd.DataFrame(columns=config_io.MODEL_DETAILS_COLUMNS),
+        pi_names_df=pd.DataFrame(columns=config_io.PI_COLUMNS),
+        section_order_df=pd.DataFrame(columns=config_io.SECTION_ORDER_COLUMNS),
+        mvdvcv_df=pd.DataFrame(columns=config_io.MVDVCV_COLUMNS),
+        target_section=None,
+    )
+
+
 def _load_config(case_id: str = DEFAULT_CASE_ID) -> WhatIfConfig:
     """Cached by (case_id, path, mtime), mirroring _load_historian() below:
     every What-If endpoint calls this, and on every page mount several of them
@@ -48,7 +71,7 @@ def _load_config(case_id: str = DEFAULT_CASE_ID) -> WhatIfConfig:
     the file's mtime changes, e.g. right after an upload."""
     path = paths.config_file(case_id)
     if not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail=f"Config file not found at {path}")
+        return _empty_config()
     mtime = os.path.getmtime(path)
     with _config_cache_lock:
         entry = _config_cache.get(case_id)
