@@ -22,16 +22,20 @@ Sidebar → "What-If Studio" group
 
 ## 2. Persistence model
 
-What-If Studio has **no server-side session and no per-case storage** — every screen reads from and writes to the same handful of files/tables on disk, shared across every browser tab and every user.
+What-If Studio has **no server-side session**, but it does have real per-**case** isolation (a "case" is an isolated scenario setup for the one YANPET_OLF1 plant — not a different plant). Every screen reads from and writes to whichever case is currently active; switching cases changes what every screen shows.
 
-| What | Where | Written by |
-|---|---|---|
-| Plant config (8 sheets, see below) | `Data/Config_file.xlsx` | Every section's own "Save" action (§8), the bulk "Save Configuration to Server" button, or workbook upload/reset |
-| Training/historian workbook | `Data/DMC_Screen_tags_data.xlsx` (path configurable via `WHATIF_TRAINING_WORKBOOK`) | "Advanced: train dedicated Kalman filter models" upload |
-| Dedicated Kalman models | `Results/Model/kalman_filter_model_{parameter}.pkl` + matching `scaler_X_{parameter}.pkl`/`scaler_y_{parameter}.pkl` | The training subprocess (`Scripts/Model_development_and_static_whatif_testing.py`), run as a background job |
-| Kalman training accuracy report | `Results/Model/Model_accuracy_summary.csv` | Same training subprocess |
-| Soft Sensor experiments (any algorithm) | `saved_models/<model_name>/` + `dashboard.db`'s `model_registry` table | The Soft Sensor "Build Model" page (reused inside Model Development) |
-| **The one bridge**: which experiment is "Selected for What-If Analysis" per parameter | `dashboard.db`'s `whatif_model_selection(parameter TEXT PRIMARY KEY, model_name, selected_at)` | Experimentation & Model Selection's "Use for What-If Analysis" action |
+| What | Where | Written by | Case-scoped? |
+|---|---|---|---|
+| Case registry | `dashboard.db`'s `whatif_cases(case_id TEXT PRIMARY KEY, name, created_at, last_opened_at)` | `POST /api/what-if/cases` (create), `POST /api/what-if/cases/{id}/open` (touch `last_opened_at`) | — (this *is* the case list) |
+| Plant config (8 sheets, see below) | `Data/<case_id>/Config_file.xlsx` (flat `Data/Config_file.xlsx` for the `"default"` case) | Every section's own "Save" action (§7), the bulk "Save Configuration to Server" button, or workbook upload | ✅ |
+| Training/historian workbook | `Data/<case_id>/DMC_Screen_tags_data.xlsx` | "Advanced: train dedicated Kalman filter models" upload | ✅ |
+| Dedicated Kalman models | `Results/<case_id>/Model/kalman_filter_model_{parameter}.pkl` + matching scalers | The training subprocess (`Scripts/Model_development_and_static_whatif_testing.py`), run as a background job | ✅ |
+| Kalman training accuracy report | `Results/<case_id>/Model/Model_accuracy_summary.csv` | Same training subprocess | ✅ |
+| Soft Sensor experiments (any algorithm) | `saved_models/<case_id>/<model_name>/` + `dashboard.db`'s `model_registry` table | The Soft Sensor "Build Model" page (reused inside Model Development) | ✅ |
+| **The one bridge**: which experiment is "Selected for What-If Analysis" per parameter | `dashboard.db`'s `whatif_model_selection(parameter, model_name, selected_at, case_id)` | Experimentation & Model Selection's "Use for What-If Analysis" action | ✅ |
+| Uploaded datasets, preprocessing projects (`artifacts/<project_id>/`) | `dashboard.db`'s `datasets` table, `artifacts/` | Soft Sensor "Connect Data" / Feature Selection's "Final Apply" | ❌ shared globally across every case |
+
+`"default"` is a real `case_id`, not a placeholder — every path function (`src/whatif/paths.py`) and case-scoped store (`src/persistence/model_store.py`) resolves it to the original flat layout (`Data/Config_file.xlsx`, `Results/Model/`, `saved_models/<model_name>/`) with zero migration, so everything that existed before case isolation shipped kept working unchanged as "Default Case." See **§3a** for exactly how the active case is chosen and threaded through every request.
 
 **`Config_file.xlsx`'s 8 sheets** (`src/whatif/config_io.py`):
 
@@ -51,11 +55,20 @@ What-If Studio has **no server-side session and no per-case storage** — every 
 ## 3. Welcome (`/what-if/overview`, `OverviewPage.tsx`)
 
 - **Quick Actions**:
-  - **Start New Case** — prompts a confirmation (`window.confirm`), then clears all 8 `Config_file.xlsx` sheets back to blank via `saveConfig()` with an all-empty payload, invalidates every `whatif-*` query, resets the client-side target section/generated tags (`ActiveWhatIfContext`), and navigates to What-If Setup. Does **not** touch trained Kalman `.pkl` files or Soft Sensor's `saved_models`/`model_registry`/`whatif_model_selection`.
-  - **Resume Existing Case** — no reset, just navigates to `/what-if/dashboard` if `GET /api/what-if/config/status` + `GET /api/what-if/models/status` report everything ready, otherwise to `/what-if/case-setup`.
-- **Configuration Status** tiles: Process Flow Order, PI Tag Mapping, Model Mapping, Trained Models — each backed by `GET /api/what-if/config/status` / `GET /api/what-if/models/status`.
-- **Recent Cases**: a single card showing the current (only) configuration's readiness — this app has no multi-case list.
-- **Resources**: User Guide and FAQ (in-page, auto-scrolls into view when opened), and "Sample Configuration" (downloads the current 8-sheet workbook via `POST /api/what-if/config/export`).
+  - **+ New Case** — reveals a name field; submitting calls `createCase(name)` → `POST /api/what-if/cases` (server sanitizes the name to a folder-safe `case_id`, `os.makedirs()`s blank `Data/<case_id>/` + `Results/<case_id>/Model/` folders — no files copied/templated), sets it active, invalidates every case-scoped query (§3a), and navigates to What-If Setup showing a genuinely blank config.
+  - **⏩ Switch / Resume Case** — reveals a picker (`GET /api/what-if/cases`, most-recently-opened first). Selecting one calls `openCase(caseId)` → `POST /api/what-if/cases/{id}/open` (bumps `last_opened_at`), sets it active, invalidates the same queries, and navigates to What-If Setup.
+- **Current case** line + **Current Case** card: shows the active case's name and readiness; its button navigates straight to `/what-if/dashboard` if fully ready, otherwise to `/what-if/case-setup` — no case switch, just a shortcut within the already-active case.
+- **Configuration Status** tiles: Process Flow Order, PI Tag Mapping, Model Mapping, Trained Models — each backed by `GET /api/what-if/config/status` / `GET /api/what-if/models/status`, both automatically scoped to the active case (§3a).
+- **Resources**: User Guide and FAQ (in-page, auto-scrolls into view when opened), and "Sample Configuration" (downloads the current case's 8-sheet workbook via `POST /api/what-if/config/export`).
+- A "📁 `<case name>` · Switch" pill in the sidebar footer (`Sidebar.tsx`) is visible on every page, so switching cases doesn't require returning to Welcome.
+
+## 3a. How the active case gets threaded through every request
+
+There is exactly one thing tracked app-wide: *which case is active*. Everything else in §2's table is derived from it.
+
+- **Backend**: every What-If route/service function, plus the Soft-Sensor `overview`/`training`/`predict` routes that touch `model_registry`/`saved_models`/`whatif_model_selection`, takes a `case_id: str = Query("default")` parameter, threaded straight through to `src/whatif/paths.py` and `src/persistence/model_store.py`. `src/whatif/engine.py`'s Soft-Sensor bridge (`predict_and_update_with_soft_sensor_model()`) and `src/whatif/model_status.py::required_kalman_tags()` are scoped the same way, so a scenario run in one case can never read another case's models or experiment selections.
+- **Frontend**: `frontend/src/state/ActiveCaseContext.tsx` holds `activeCaseId` (persisted in `localStorage`), provided at the app root in `main.tsx` (not nested under What-If Studio — the Soft Sensor pages reused inside it are case-scoped too). A request interceptor in `frontend/src/api/client.ts` reads that `localStorage` key directly (interceptors run outside React) and stamps `?case_id=...` onto every request whose URL starts with `/what-if/`, `/overview`, `/training/`, or `/predict` — so no individual page or `api/*.ts` wrapper function needs to know a case system exists at all.
+- **Case CRUD**: `frontend/src/api/cases.ts` (`listCases`/`createCase`/`openCase`) → `backend/app/services/whatif_case_service.py` → `src/data/database.py`'s `whatif_cases` table functions (`sanitize_case_id`, `create_case`, `list_cases`, `get_case`, `touch_case_opened`).
 
 ---
 
@@ -133,16 +146,16 @@ This is what actually runs on `POST /api/what-if/dashboard/compute`, called from
    - Apply any generic `bump_linked_to_max` constraint + user overrides on its raw inputs (`apply_leaf_overrides_and_constraints`).
    - **If it's plugin-owned or a "First principle" (non-data-model) parameter** → run the plugin's `SIMULATION`/`BULK_SIMULATION` function for it, or leave it at baseline if none is registered.
    - **Otherwise**, try in order:
-     1. `predict_and_update_with_soft_sensor_model(y_col, row)` — looks up `whatif_model_selection` for `y_col`; if a Soft Sensor experiment is selected, loads it (`src/persistence/model_store.py::load_model_from_disk`), validates its `x_cols` are all present in the row, scales/predicts/inverse-scales, writes the result. Raises `LookupError` if no selection exists or a required column is missing.
-     2. On `LookupError` → `predict_and_update_with_kalman(y_col, row, ...)` — loads `kalman_filter_model_{y_col}.pkl` + its two scalers, steps the (already-fitted) Kalman filter one more time with no measurement, writes the inverse-scaled result. Raises `FileNotFoundError` if the artifacts don't exist.
+     1. `predict_and_update_with_soft_sensor_model(y_col, row, case_id)` — looks up `whatif_model_selection` **scoped to the active case** for `y_col`; if a Soft Sensor experiment is selected, loads it from `saved_models/<case_id>/` (`src/persistence/model_store.py::load_model_from_disk`), validates its `x_cols` are all present in the row, scales/predicts/inverse-scales, writes the result. Raises `LookupError` if no selection exists (for this case) or a required column is missing.
+     2. On `LookupError` → `predict_and_update_with_kalman(y_col, row, ...)` — loads `Results/<case_id>/Model/kalman_filter_model_{y_col}.pkl` + its two scalers, steps the (already-fitted) Kalman filter one more time with no measurement, writes the inverse-scaled result. Raises `FileNotFoundError` if the artifacts don't exist.
      3. On `FileNotFoundError` → keep the baseline value, logged (never raised to the caller).
    - Apply any user override on the parameter's own value (this wins over whatever was just predicted).
    - Check `abort_if_exceeds` constraints — if tripped, the whole run stops here, the parameter's value becomes the constraint's `Remark` message, and `constraint_hit`/`constraint_message` are set on the response.
    - Fire any plugin `HOOKS["after:<param>"]` registered for this parameter.
 6. After the loop, a safety-net pass fires any hook whose trigger parameter never actually appeared in the execution order (e.g. misspelled in `Model details`), so its outputs aren't silently frozen at baseline.
-7. KPIs are derived fresh every call via `src/whatif/kpi.py::derive_kpi_tags()` — the order-preserving union of every Predicted Parameter, every Constraints-sheet parameter, and the plugin's `KPI_PARAMETERS`, with `KPI_REPLACEMENTS` substitution applied last. There is no hardcoded KPI tag list.
+7. KPIs are derived fresh every call via `src/whatif/kpi.py::derive_kpi_tags()` — the order-preserving union of every Predicted Parameter, every Constraints-sheet parameter, and the plugin's `KPI_PARAMETERS`, with `KPI_REPLACEMENTS` substitution applied last (no hardcoded KPI tag list) — then reordered by `kpi.apply_preferred_order()` against the same "Results Layout" `display_column_order` sheet used for the main results table, so a KPI you've put first there (e.g. `DMCTF_feed`) renders first in the KPI cards too, not just in the parameter table.
 
-`src/whatif/model_status.py::required_kalman_tags()` mirrors step 5's dispatch for the "is everything ready" gate: a parameter is only required to have Kalman `.pkl` artifacts if it has **no** `whatif_model_selection` entry and isn't a non-data-model/simulation parameter.
+`src/whatif/model_status.py::required_kalman_tags(model_details_df, case_id)` mirrors step 5's dispatch for the "is everything ready" gate: a parameter is only required to have Kalman `.pkl` artifacts if it has **no** `whatif_model_selection` entry for the active case and isn't a non-data-model/simulation parameter.
 
 ---
 
@@ -155,13 +168,13 @@ Every `commit_*` service function in `backend/app/services/what_if_service.py` (
 3. Replace **only** the one sheet being saved with the new rows.
 4. Write all 8 sheets back to `Config_file.xlsx` in one atomic call (`_write_all_sheets()`, shared with the bulk `save_config()` endpoint).
 
-This means every individual "Save" button persists immediately and independently — no separate "commit" step is needed, and a per-section save can never clobber another section's data. Every sheet is written with its full expected column set even when empty (`_rows_to_df()` falls back to `config_io`'s column constants), so a fully-cleared sheet (e.g. after "Start New Case") still round-trips cleanly through `config_io.load_all_config()`.
+This means every individual "Save" button persists immediately and independently — no separate "commit" step is needed, and a per-section save can never clobber another section's data. Every sheet is written with its full expected column set even when empty (`_rows_to_df()` falls back to `config_io`'s column constants), so a fully-cleared sheet (e.g. a brand-new case, which starts with none of the 8 sheets present) still round-trips cleanly through `config_io.load_all_config()`.
 
 ---
 
 ## 8. Design decisions worth knowing
 
-- **No per-case storage.** There is exactly one `Config_file.xlsx`, shared across every browser tab/user. "Start New Case" clears it (with confirmation); it does not create an isolated copy.
+- **Case isolation is folder-per-case, modeled on the legacy Streamlit app's multi-plant structure** (see §2/§3a) — but only the config/model layer is per-case, not the plant physics itself (still one plugin, `yanpet_olf1_formulas.py`, shared by every case). `"default"` is a real case, not a special code path — every case-aware function defaults to it and it resolves to the pre-case-isolation flat file layout unchanged.
 - **What-If Setup always opens on System Config.** An earlier "jump to the first incomplete section" default was removed because it silently skipped straight to Model Config whenever System Config was already done, which read as inconsistent/confusing.
 - **Model Development is intentionally non-linear.** Its stepper is fully clickable in any order (not a gated wizard) — rebuilding a model, revisiting feature selection, or re-mapping a parameter never requires walking through every step again.
 - **Experimentation & Model Selection is explicitly not a model registry.** No versioning, no rollback, no lifecycle states — just "which one experiment, if any, is currently selected per parameter," with full experiment history always preserved (nothing is ever deleted on selection).

@@ -46,7 +46,7 @@ app.include_router(what_if.router, prefix="/api")
 
 - **`frontend/src/api/*.ts`** — one file per backend domain (`predict.ts`, `training.ts`, `whatIf.ts`, ...). Each is a thin, typed wrapper around the shared `apiClient` (`api/client.ts` — axios, `baseURL: '/api'`). In dev, `vite.config.ts` proxies `/api` to `http://localhost:8010`.
 - **`frontend/src/pages/<Feature>/<Feature>Page.tsx`** — a page composes: React Query `useQuery`/`useMutation` calls into the API layer, local `useState` for form/UI state, and shared components from `frontend/src/components/` (`Callout`, `DataTable`, `StatusCard`, `Tabs`, `MultiSelectDropdown`, `LineChart`/`ScatterChart`, ...) for layout.
-- **`frontend/src/state/*Context.tsx`** — the only "global" client state: small `localStorage`-backed React Contexts for the few things that must survive page navigation (active dataset, active project, the What-If wizard's generated tag list + active Target Section).
+- **`frontend/src/state/*Context.tsx`** — the only "global" client state: small `localStorage`-backed React Contexts for the few things that must survive page navigation (active dataset, active project, the What-If wizard's generated tag list + active Target Section, and `ActiveCaseContext` — the active case_id, read directly from `localStorage` by `api/client.ts`'s request interceptor since interceptors run outside React).
 - **`frontend/src/layout/Sidebar.tsx`** + **`routes.tsx`** — the navigation shell. Each sidebar entry maps 1:1 to a route.
 
 **Notable constraint:** no UI component library (no MUI/AntD/Tailwind) and no charting library. Everything is hand-rolled CSS (`theme.css`, CSS custom properties) and custom SVG chart components. New pages should follow this convention rather than introducing a library.
@@ -59,14 +59,16 @@ app.include_router(what_if.router, prefix="/api")
 |---|---|---|
 | Sidebar flow | Connect Data → Data Health → Feature Discovery → Build Model → Prediction | Welcome → What-If Setup (System Config / Model Config / What-If Config) → What-If Analysis |
 | Frontend pages | `pages/Upload/`, `Preprocess/`, `FeatureSelection/`, `Train/`, `Predict/` | `pages/WhatIf/` — `WhatIfSetupPage.tsx` hosts 3 top-level tabs: `SystemConfigTab.tsx` (Process Flow Order / PI Tag Mapping / Input Tag Configuration), `ModelConfigTab.tsx` (Model Development's 5-phase stepper — Connect Data/Data Health/Model Definition/AI Feature Discovery/Build Model, reusing the Soft Sensor pages verbatim — plus Experimentation & Model Selection), `WhatIfConfigTab.tsx` (Constraints/User Inputs/Results Layout). `DashboardPage.tsx` is the single flowing "What-If Analysis" page. |
-| Backend routes | `datasets.py`, `preprocess.py`, `feature_selection.py`, `training.py`, `predict.py` | `what_if.py` — config CRUD (8 sheets), wizard, training-data upload, model training/status, dashboard compute/validation |
+| Backend routes | `datasets.py`, `preprocess.py`, `feature_selection.py`, `training.py`, `predict.py` | `what_if.py` — case CRUD, config CRUD (8 sheets), wizard, training-data upload, model training/status, dashboard compute/validation; every route takes a `case_id` query param |
 | Core `src/` logic | `src/data/`, `src/feature_selection/`, `src/training/`, `src/models/`, `src/evaluation/` | `src/whatif/` (`config_io.py`, `historian.py`, `engine.py`, `wizard.py`, `model_status.py`, `kpi.py`, `plants/` — the plant-specific physics plugin package) |
-| Persistence | `dashboard.db` (SQLite) + `saved_models/` (pickled models/scalers) | `Data/Config_file.xlsx` (8 sheets), `Results/Model/*.pkl`, `Results/Raw_data_plus_simulated_data.xlsx` — a separate, file-based world, deliberately **mostly** kept apart from `dashboard.db` (see the one narrow bridge below) |
+| Persistence | `dashboard.db` (SQLite) + `saved_models/` (pickled models/scalers) — datasets/preprocessing projects are global, models/registry are case-scoped (see below) | `Data/<case_id>/Config_file.xlsx` (8 sheets), `Results/<case_id>/Model/*.pkl`, `Results/<case_id>/Raw_data_plus_simulated_data.xlsx` — a separate, file-based world, deliberately **mostly** kept apart from `dashboard.db` (see the one narrow bridge below), and isolated per **case** (`"default"` = the original flat layout, zero migration) |
 | Reference implementation | — (built directly against this architecture) | `Scripts/whatif_runner.py`/`Whatif_streamlit_dashboard.py` and their `_updated` counterparts — **read-only** legacy Streamlit apps `src/whatif/` was ported from (the generalized dependency-graph engine and 8-sheet config schema came from the `_updated` versions). Never imported, never modified. |
 
 Both modules use the exact same routes→schemas→services→src backend layering and the exact same page→api→component frontend layering described above — once you understand one, you understand the shape of the other.
 
-**The one deliberate bridge between the two persistence worlds:** Experiment History (`frontend/src/pages/SoftSensor/ExperimentHistoryPage.tsx`, reused inside Model Config's "Experimentation & Model Selection" tab) lets a user mark one Soft Sensor experiment (from `dashboard.db`'s `model_registry` / `saved_models/`) as **"Selected for What-If Analysis"** for a given Predicted Parameter. That selection is recorded in a new `dashboard.db` table, `whatif_model_selection(parameter TEXT PRIMARY KEY, model_name, selected_at)`. `src/whatif/engine.py::predict_and_update_with_soft_sensor_model()` checks this table before falling back to the dedicated Kalman filter for that parameter — see §5/`flow.md` for the exact dispatch order. This is intentionally the *only* place the two worlds touch; everything else about the two modules' storage stays fully separate.
+**The one deliberate bridge between the two persistence worlds:** Experiment History (`frontend/src/pages/SoftSensor/ExperimentHistoryPage.tsx`, reused inside Model Config's "Experimentation & Model Selection" tab) lets a user mark one Soft Sensor experiment (from `dashboard.db`'s `model_registry` / `saved_models/`) as **"Selected for What-If Analysis"** for a given Predicted Parameter. That selection is recorded in a `dashboard.db` table, `whatif_model_selection(parameter, model_name, selected_at, case_id)`. `src/whatif/engine.py::predict_and_update_with_soft_sensor_model()` checks this table before falling back to the dedicated Kalman filter for that parameter — see §5/`flow.md` for the exact dispatch order. This is intentionally the *only* place the two worlds touch; everything else about the two modules' storage stays fully separate.
+
+**Case isolation crosses that same bridge deliberately, once.** Since the two modules otherwise keep separate persistence, the natural boundary would leave the Soft Sensor side (`model_registry`, `saved_models/`) global while only What-If's own config/Kalman models were per-case — but a selection made in one case pointing at a model trained for a different case would be meaningless. So `model_registry` and `whatif_model_selection` both carry a `case_id` column, and `saved_models/<case_id>/<model_name>/` mirrors `Results/<case_id>/Model/`'s per-case layout. Datasets and preprocessing projects (`artifacts/<project_id>/`) stay global — they're raw reusable material, not a case's results. See `flow.md` §2/§3a for the full mechanism (`ActiveCaseContext`, the `case_id` request interceptor, `whatif_case_service.py`).
 
 ---
 
@@ -76,8 +78,8 @@ Both modules use the exact same routes→schemas→services→src backend layeri
 
 1. User clicks the button in `frontend/src/pages/WhatIf/DashboardPage.tsx` → calls `runScenario()` from `frontend/src/api/whatIf.ts`.
 2. Axios POSTs to `/api/what-if/dashboard/compute` with a `WhatIfScenarioRequest` body (timestamp + overrides + `target_section`).
-3. `backend/app/api/routes/what_if.py`'s `dashboard_compute()` route receives it, validated by the `schemas/what_if.py` Pydantic model, and calls `what_if_service.run_scenario(...)` — nothing else.
-4. `backend/app/services/what_if_service.py` loads the historian and config (both cached in-process, keyed by file mtime, since the historian Excel file is expensive to parse) and calls `src/whatif/engine.py`'s `whatif_analysis()` — this function has no idea an HTTP request exists. It builds a dependency graph from the `Model details` sheet, walks it in topological order, and for every predicted parameter tries, in order: (a) a plant-plugin simulation function if the parameter is plugin-owned/first-principle, (b) a Soft-Sensor experiment marked "Selected for What-If Analysis" for that parameter (`predict_and_update_with_soft_sensor_model()`, the bridge described in §4), (c) the dedicated Kalman filter (`predict_and_update_with_kalman()`), (d) otherwise the baseline value is kept — with generic `Constraints`-sheet rules (bump/abort) and plugin hooks applied around each step. See `flow.md` for the exact per-parameter dispatch order and every file involved.
+3. `backend/app/api/routes/what_if.py`'s `dashboard_compute()` route receives it, validated by the `schemas/what_if.py` Pydantic model, plus a `case_id` query param (defaulting to `"default"`, attached automatically by the frontend's request interceptor — see §4), and calls `what_if_service.run_scenario(..., case_id)` — nothing else.
+4. `backend/app/services/what_if_service.py` loads the historian and config **for that case** (both cached in-process per case_id, keyed by file mtime, since the historian Excel file is expensive to parse) and calls `src/whatif/engine.py`'s `whatif_analysis()` — this function has no idea an HTTP request exists. It builds a dependency graph from the `Model details` sheet, walks it in topological order, and for every predicted parameter tries, in order: (a) a plant-plugin simulation function if the parameter is plugin-owned/first-principle, (b) a Soft-Sensor experiment marked "Selected for What-If Analysis" for that parameter (`predict_and_update_with_soft_sensor_model()`, the bridge described in §4), (c) the dedicated Kalman filter (`predict_and_update_with_kalman()`), (d) otherwise the baseline value is kept — with generic `Constraints`-sheet rules (bump/abort) and plugin hooks applied around each step. See `flow.md` for the exact per-parameter dispatch order and every file involved.
 5. The service reshapes the returned `WhatIfResult` dataclass into a `WhatIfScenarioResponse` (rows + KPIs, the KPI tag list itself derived live via `src/whatif/kpi.py::derive_kpi_tags()` + constraint-hit flag); the route serializes it to JSON.
 6. Back in `DashboardPage.tsx`, the `useMutation` resolves, the page auto-scrolls to the results, and `KpiCardsRow`, `ActualVsEstimatedTable`, and `ValidationFiltersPanel` re-render with the new data.
 
@@ -92,16 +94,16 @@ backend/app/
 ├── main.py              # router registration, CORS, startup hook
 ├── api/routes/          # one file per feature — thin, HTTP-only
 ├── schemas/              # Pydantic request/response models
-├── services/              # orchestration — calls src/, shapes responses
+├── services/              # orchestration — calls src/, shapes responses (incl. whatif_case_service.py — case CRUD)
 ├── jobs/manager.py       # background job submit()/get() for long-running work
 └── core/config.py        # CORS origins + re-exports of config.settings
 
 frontend/src/
-├── api/                  # one .ts file per backend domain
+├── api/                  # one .ts file per backend domain, incl. cases.ts (case CRUD) + client.ts's case_id interceptor
 ├── pages/                # one folder per page, colocated sub-components
 ├── components/           # shared, hand-rolled UI (no library)
-├── state/                # the few cross-page Contexts
-├── layout/                # Sidebar + Layout shell
+├── state/                # the few cross-page Contexts, incl. ActiveCaseContext.tsx
+├── layout/                # Sidebar (also renders the "Case: <name> · Switch" pill) + Layout shell
 └── routes.tsx             # route table, one entry per sidebar item
 
 src/
