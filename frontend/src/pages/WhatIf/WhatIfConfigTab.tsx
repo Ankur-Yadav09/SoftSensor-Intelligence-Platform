@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getColumnOrder, getConstraints, getPiMapping, getSectionOrder, getUserInputs } from '../../api/whatIf'
 import { Tabs } from '../../components/Tabs'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
@@ -12,6 +13,7 @@ import { UserInputsEditor } from './UserInputsEditor'
 // (Constraints, User Inputs, Results Layout), unchanged from before, just
 // reorganized as horizontal sub-tabs instead of vertical wizard steps.
 export function WhatIfConfigTab() {
+  const navigate = useNavigate()
   const { targetSection } = useActiveWhatIf()
   const [tab, setTab] = useState(0)
   const sectionOrderQuery = useQuery({ queryKey: ['whatif-section-order'], queryFn: getSectionOrder })
@@ -61,6 +63,17 @@ export function WhatIfConfigTab() {
                 Optional. Preferred column display order for the Actual-vs-Estimated results table and CSV exports.
               </p>
               <ColumnOrderEditor tagOptions={tagOptions} />
+              <div
+                style={{
+                  marginTop: '1.5rem',
+                  paddingTop: '1.5rem',
+                  borderTop: '1px solid var(--border)',
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                }}
+              >
+                <button onClick={() => navigate('/what-if/dashboard')}>🚀 Go to What-If Analysis</button>
+              </div>
             </div>
           ),
         },

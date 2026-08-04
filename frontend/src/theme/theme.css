@@ -226,6 +226,16 @@ tr:hover td {
 table:has(.sticky-col) {
   overflow: visible;
 }
+/* Same clipping problem as above, but for scrollable tables with no frozen
+   column (Actual vs Estimated Scenario Output, Correlated Historical
+   Validation Sets, ...): the base `table { overflow: hidden }` rule still
+   becomes the nearest non-visible ancestor for the sticky <thead>, so the
+   header scrolls away with the rows instead of staying pinned. Reset it
+   whenever the table sits inside either scrollable wrapper class. */
+.data-table-scroll table,
+.scroll-rows-5 table {
+  overflow: visible;
+}
 
 .metric-value {
   font-size: 1.6rem;

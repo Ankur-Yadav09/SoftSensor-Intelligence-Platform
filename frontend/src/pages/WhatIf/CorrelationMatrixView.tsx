@@ -32,7 +32,7 @@ export function CorrelationMatrixView() {
         {data.n_rows} numeric columns from the training dataset. Green cells are strongly positively correlated
         (&gt; 0.4), red cells strongly negatively correlated (&lt; -0.4).
       </p>
-      <div style={{ overflow: 'auto', maxHeight: 480 }}>
+      <div className="data-table-scroll" style={{ overflow: 'auto', maxHeight: 480 }}>
         <table className="table-compact" style={{ fontSize: '0.75rem' }}>
           <thead>
             <tr>

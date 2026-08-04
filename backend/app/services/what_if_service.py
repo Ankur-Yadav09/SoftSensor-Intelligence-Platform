@@ -835,7 +835,8 @@ def run_scenario(
         rows.append(schemas.WhatIfScenarioRow(parameter=key, actual=act, estimated=est, change=change))
 
     kpis: List[schemas.WhatIfKpi] = []
-    for tag in kpi.derive_kpi_tags(cfg, plugin):
+    kpi_tags = kpi.apply_preferred_order(kpi.derive_kpi_tags(cfg, plugin), cfg.display_order_df)
+    for tag in kpi_tags:
         try:
             act_f = float(result.actual.get(tag))
             est_f = float(result.estimated.get(tag))
