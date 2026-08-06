@@ -8,6 +8,7 @@ import { FeatureSelectionPage } from '../FeatureSelection/FeatureSelectionPage'
 import { PreprocessPage } from '../Preprocess/PreprocessPage'
 import { TrainPage } from '../Train/TrainPage'
 import { UploadPage } from '../Upload/UploadPage'
+import { useActiveDataset } from '../../state/ActiveDatasetContext'
 import { useActiveWhatIf } from '../../state/ActiveWhatIfContext'
 import { allowedSet } from './caseSetupHelpers'
 import { CorrelationMatrixView } from './CorrelationMatrixView'
@@ -27,12 +28,16 @@ import type { ModelDevPhaseKey } from './ModelDevelopmentStepper'
 // src/whatif/engine.py::predict_and_update_with_soft_sensor_model). All
 // Soft Sensor pages are reused verbatim, no duplicated implementations.
 // Correlation Matrix isn't a standalone tab — it's appended inside Data
-// Health, scoped to What-If's own training workbook. The dedicated
-// Kalman-filter training step lives folded into Experimentation & Model
-// Selection as a secondary/fallback action for parameters with no
-// Experiment-History-selected model.
+// Health, computed over whichever dataset is active in Connect Data (the
+// same dataset PreprocessPage's own checks run against) — not the separate,
+// case-scoped What-If training workbook (that one still has its own
+// endpoint, api/whatIf.ts::getCorrelationMatrix, just unused by this view
+// now). The dedicated Kalman-filter training step lives folded into
+// Experimentation & Model Selection as a secondary/fallback action for
+// parameters with no Experiment-History-selected model.
 export function ModelConfigTab() {
   const navigate = useNavigate()
+  const { activeDataset: datasetName } = useActiveDataset()
   const { targetSection } = useActiveWhatIf()
   const [outerTab, setOuterTab] = useState(0)
   const [devPhase, setDevPhase] = useState<ModelDevPhaseKey>('connect')
@@ -62,12 +67,12 @@ export function ModelConfigTab() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         <PreprocessPage hideStepper onContinue={() => setDevPhase('modeldef')} />
         <div style={{ marginTop: '0.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
-          <h3 style={{ marginTop: 0 }}>What-If Training Data — Correlation Matrix</h3>
+          <h3 style={{ marginTop: 0 }}>Correlation Matrix</h3>
           <p className="caption">
-            Pearson correlation of the What-If training workbook — spot strongly related tags before mapping model
-            inputs below.
+            Pearson correlation of the connected dataset — spot strongly related tags before mapping model inputs
+            below.
           </p>
-          <CorrelationMatrixView />
+          <CorrelationMatrixView datasetName={datasetName} />
         </div>
       </div>
     )

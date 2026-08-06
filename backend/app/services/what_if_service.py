@@ -857,8 +857,19 @@ def run_scenario(
             change = None
         rows.append(schemas.WhatIfScenarioRow(parameter=key, actual=act, estimated=est, change=change))
 
+    # Same section resolution engine.whatif_analysis() itself uses (a
+    # request-supplied target_section wins; otherwise fall back to the
+    # saved config's), so the KPI cards reflect exactly the scope the
+    # scenario was actually computed against — mirrors
+    # Whatif_streamlit_dashboard_updated.py's KPI cards, which only show
+    # tiles for the target section and everything upstream of it.
+    resolved_target_section = body.target_section if body.target_section is not None else cfg.target_section
+    allowed_sections = config_io.allowed_sections_upto(cfg.section_order_list(), resolved_target_section)
+    section_map = kpi.build_param_section_map(cfg)
+
     kpis: List[schemas.WhatIfKpi] = []
-    kpi_tags = kpi.apply_preferred_order(kpi.derive_kpi_tags(cfg, plugin), cfg.display_order_df)
+    kpi_tags = kpi.scope_to_target_section(kpi.derive_kpi_tags(cfg, plugin), section_map, allowed_sections)
+    kpi_tags = kpi.apply_preferred_order(kpi_tags, cfg.display_order_df)
     for tag in kpi_tags:
         try:
             act_f = float(result.actual.get(tag))

@@ -1,6 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import type { CSSProperties } from 'react'
-import { getCorrelationMatrix } from '../../api/whatIf'
+import { exportCorrelationMatrix, getCorrelationMatrix } from '../../api/preprocess'
+import { Callout } from '../../components/Callout'
+import { downloadBlob } from '../../api/whatIf'
 
 function cellStyle(value: number | null): CSSProperties {
   if (value === null) return {}
@@ -9,19 +11,30 @@ function cellStyle(value: number | null): CSSProperties {
   return {}
 }
 
-// Pearson correlation matrix over the training dataset's numeric columns,
+interface CorrelationMatrixViewProps {
+  /** The dataset currently active in Connect Data — the same dataset Data
+   * Health's other checks (PreprocessPage) already run against. */
+  datasetName: string
+}
+
+// Pearson correlation matrix over the connected dataset's numeric columns,
 // with the same green(> 0.4)/red(< -0.4) conditional coloring as the
 // reference Streamlit dashboard's correlation step.
-export function CorrelationMatrixView() {
-  const query = useQuery({ queryKey: ['whatif-correlation-matrix'], queryFn: getCorrelationMatrix })
+export function CorrelationMatrixView({ datasetName }: CorrelationMatrixViewProps) {
+  const query = useQuery({
+    queryKey: ['dataset-correlation-matrix', datasetName],
+    queryFn: () => getCorrelationMatrix(datasetName),
+    enabled: !!datasetName,
+  })
+  const exportMutation = useMutation({
+    mutationFn: () => exportCorrelationMatrix(datasetName),
+    onSuccess: (blob) => downloadBlob(blob, `Correlation_Matrix_${datasetName}.xlsx`),
+  })
 
+  if (!datasetName) return <p className="caption">Select a dataset in Connect Data to see its correlation matrix.</p>
   if (query.isLoading) return <p className="caption">Computing correlation matrix…</p>
   if (query.isError) {
-    return (
-      <p className="caption">
-        Correlation matrix unavailable — save a training dataset in the step above first.
-      </p>
-    )
+    return <p className="caption">Correlation matrix unavailable for '{datasetName}'.</p>
   }
   const data = query.data
   if (!data || data.columns.length === 0) return <p className="caption">No numeric columns to correlate.</p>
@@ -29,7 +42,7 @@ export function CorrelationMatrixView() {
   return (
     <div>
       <p className="caption">
-        {data.n_rows} numeric columns from the training dataset. Green cells are strongly positively correlated
+        {data.n_rows} numeric columns from <code>{datasetName}</code>. Green cells are strongly positively correlated
         (&gt; 0.4), red cells strongly negatively correlated (&lt; -0.4).
       </p>
       <div className="data-table-scroll" style={{ overflow: 'auto', maxHeight: 480 }}>
@@ -60,6 +73,19 @@ export function CorrelationMatrixView() {
           </tbody>
         </table>
       </div>
+      <button
+        className="chip"
+        style={{ marginTop: '1rem' }}
+        onClick={() => exportMutation.mutate()}
+        disabled={exportMutation.isPending}
+      >
+        {exportMutation.isPending ? 'Preparing…' : '📥 Download Correlation Matrix (.XLSX)'}
+      </button>
+      {exportMutation.isError && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <Callout variant="error">Could not prepare the correlation matrix download.</Callout>
+        </div>
+      )}
     </div>
   )
 }

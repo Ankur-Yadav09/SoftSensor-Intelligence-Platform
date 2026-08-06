@@ -1,11 +1,37 @@
 import { apiClient } from './client'
-import type { ApplyPreprocessingResponse, FeatureDetail, FeatureStat, ProjectSummary } from './types'
+import type {
+  ApplyPreprocessingResponse,
+  CorrelationMatrixResult,
+  FeatureDetail,
+  FeatureStat,
+  ProjectSummary,
+} from './types'
 
 export async function getFeatureStats(datasetName: string): Promise<FeatureStat[]> {
   const { data } = await apiClient.get<{ stats: FeatureStat[] }>(
     `/preprocess/${encodeURIComponent(datasetName)}/stats`,
   )
   return data.stats
+}
+
+// Pearson correlation over the dataset currently active in Connect Data —
+// distinct from What-If Studio's own getCorrelationMatrix() in api/whatIf.ts,
+// which reads the separate, case-scoped training workbook instead.
+export async function getCorrelationMatrix(datasetName: string): Promise<CorrelationMatrixResult> {
+  const { data } = await apiClient.get<CorrelationMatrixResult>(
+    `/preprocess/${encodeURIComponent(datasetName)}/correlation-matrix`,
+  )
+  return data
+}
+
+// Same matrix as getCorrelationMatrix(), as a colored .xlsx (green > 0.4,
+// red < -0.4 cell fills) — a plain CSV can't carry cell colors, only this
+// server-rendered workbook can (see preprocess_service.py's Styler.map).
+export async function exportCorrelationMatrix(datasetName: string): Promise<Blob> {
+  const { data } = await apiClient.get(`/preprocess/${encodeURIComponent(datasetName)}/correlation-matrix/export`, {
+    responseType: 'blob',
+  })
+  return data
 }
 
 export async function getFeatureDetail(datasetName: string, column: string): Promise<FeatureDetail> {

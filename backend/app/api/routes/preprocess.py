@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List
 
 from fastapi import APIRouter
+from fastapi.responses import Response
 
 from backend.app.schemas.preprocess import (
     ApplyPreprocessingRequest,
@@ -10,6 +11,7 @@ from backend.app.schemas.preprocess import (
     AutomatedCleaningRequest,
     BasicCleaningRequest,
     CleaningResponse,
+    CorrelationMatrixResponse,
     FeatureDetailResponse,
     FeatureStatsResponse,
     ProjectSummary,
@@ -22,6 +24,21 @@ router = APIRouter(tags=["preprocess"])
 @router.get("/preprocess/{dataset_name}/stats", response_model=FeatureStatsResponse)
 def get_stats(dataset_name: str) -> FeatureStatsResponse:
     return FeatureStatsResponse(stats=preprocess_service.get_feature_stats(dataset_name))
+
+
+@router.get("/preprocess/{dataset_name}/correlation-matrix", response_model=CorrelationMatrixResponse)
+def get_correlation_matrix(dataset_name: str) -> CorrelationMatrixResponse:
+    return CorrelationMatrixResponse(**preprocess_service.get_correlation_matrix(dataset_name))
+
+
+@router.get("/preprocess/{dataset_name}/correlation-matrix/export")
+def export_correlation_matrix(dataset_name: str) -> Response:
+    data = preprocess_service.export_correlation_matrix_xlsx(dataset_name)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="Correlation_Matrix_{dataset_name}.xlsx"'},
+    )
 
 
 @router.get("/preprocess/{dataset_name}/feature-detail", response_model=FeatureDetailResponse)

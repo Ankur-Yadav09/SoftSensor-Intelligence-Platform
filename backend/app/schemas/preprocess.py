@@ -9,6 +9,12 @@ class FeatureStatsResponse(BaseModel):
     stats: List[dict]
 
 
+class CorrelationMatrixResponse(BaseModel):
+    columns: List[str]
+    matrix: List[List[Optional[float]]]
+    n_rows: int
+
+
 class DomainFilter(BaseModel):
     min: float
     max: float

@@ -21,6 +21,7 @@ Two distinct jobs, matching the real Streamlit app's page split:
 """
 from __future__ import annotations
 
+import io
 import json
 from typing import Dict, List, Optional
 
@@ -73,6 +74,49 @@ def _load_and_validate(dataset_name: str, x_cols: List[str], y_cols: List[str]):
             detail=f"Dataset '{dataset_name}' is missing columns: {missing}",
         )
     return df
+
+
+def _compute_correlation(dataset_name: str) -> pd.DataFrame:
+    df = load_dataset_from_db(dataset_name)
+    if df is None:
+        raise HTTPException(status_code=422, detail=f"Dataset '{dataset_name}' could not be loaded.")
+    df = cast_to_numeric(_normalize_extension_dtypes(df))
+    return df.corr(method="pearson", numeric_only=True).round(4)
+
+
+def get_correlation_matrix(dataset_name: str) -> dict:
+    """Pearson correlation over dataset_name's numeric columns -- the Data
+    Health page's correlation matrix, sourced from whatever dataset is
+    active in Connect Data (not the separate, case-scoped What-If training
+    workbook src/whatif/kpi.py's counterpart reads from)."""
+    corr = _compute_correlation(dataset_name)
+    matrix = [[None if pd.isna(v) else float(v) for v in row] for row in corr.to_numpy()]
+    return {"columns": corr.columns.tolist(), "matrix": matrix, "n_rows": len(corr)}
+
+
+def _correlation_cell_color(value: float) -> str:
+    if pd.isna(value):
+        return ""
+    if value > 0.4:
+        return "background-color: #22c55e"
+    if value < -0.4:
+        return "background-color: #ef4444"
+    return ""
+
+
+def export_correlation_matrix_xlsx(dataset_name: str) -> bytes:
+    """Same correlation matrix as get_correlation_matrix(), exported as a
+    colored .xlsx workbook (green > 0.4, red < -0.4 cell fills) instead of
+    a plain CSV -- ported from Scripts/Model_development_and_static_whatif_
+    testing_updated.py's correlation_with_color_conditioning.xlsx, which
+    uses this exact df_corr.style.map(...) + ExcelWriter pattern (a plain
+    CSV can't carry cell colors, only pandas' Styler -> openpyxl path can)."""
+    corr = _compute_correlation(dataset_name)
+    styled = corr.style.map(_correlation_cell_color)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        styled.to_excel(writer, sheet_name="Correlation Matrix", index=True)
+    return buf.getvalue()
 
 
 def get_feature_stats(dataset_name: str) -> List[dict]:

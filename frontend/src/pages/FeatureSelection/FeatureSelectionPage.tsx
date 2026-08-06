@@ -41,7 +41,7 @@ export function FeatureSelectionPage({ hideStepper }: FeatureSelectionPageProps 
   // the dataset's original column order are eligible for that Y — modeled
   // server-side (backend/app/services/feature_selection_service.py), this
   // flag just opts in.
-  const [processAware, setProcessAware] = useState(false)
+  const [processAware, setProcessAware] = useState(true)
 
   const [jobId, setJobId] = useState<string | null>(null)
   const [xCols, setXCols] = useState<Set<string>>(new Set())

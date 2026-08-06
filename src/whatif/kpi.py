@@ -63,6 +63,51 @@ def derive_kpi_tags(config: WhatIfConfig, plugin: ModuleType | None) -> list[str
     return tags
 
 
+def build_param_section_map(config: WhatIfConfig) -> dict[str, str]:
+    """Parameter/tag name -> Section, from PI Tag Mapping (Generalized
+    Description -> Section) and Model details (Predicted parameter ->
+    Section) — ported from Whatif_streamlit_dashboard_updated.py's
+    _param_section_map. Model details wins on a name clash (a predicted
+    parameter's own declared section is more authoritative than a PI-tag
+    guess)."""
+    section_map: dict[str, str] = {}
+    pi_df = config.pi_names_df
+    if pi_df is not None and {"Generalized Description", "Section"}.issubset(pi_df.columns):
+        for name, sec in zip(pi_df["Generalized Description"], pi_df["Section"]):
+            name, sec = str(name).strip(), str(sec).strip()
+            if name and name.lower() != "nan":
+                section_map[name] = sec
+
+    model_df = config.model_details_df
+    if model_df is not None and {"Predicted parameter", "Section"}.issubset(model_df.columns):
+        for name, sec in zip(model_df["Predicted parameter"], model_df["Section"]):
+            name, sec = str(name).strip(), str(sec).strip()
+            if name and name.lower() != "nan":
+                section_map[name] = sec
+
+    return section_map
+
+
+def scope_to_target_section(
+    tags: list[str], section_map: dict[str, str], allowed_sections: list[str]
+) -> list[str]:
+    """Keeps only tags belonging to the target section or an upstream one
+    (Whatif_streamlit_dashboard_updated.py's _in_target_scope) — a tag with
+    no known Section anywhere is kept unconditionally rather than hidden,
+    so unclassified/legacy tags never silently disappear. `allowed_sections`
+    is normally config_io.allowed_sections_upto(section_order, target_section);
+    an empty list means "no scoping" (nothing filtered)."""
+    if not allowed_sections:
+        return list(tags)
+    allowed_lower = {s.strip().lower() for s in allowed_sections}
+    kept = []
+    for tag in tags:
+        sec = section_map.get(tag, "").strip().lower()
+        if not sec or sec in allowed_lower:
+            kept.append(tag)
+    return kept
+
+
 def apply_preferred_order(tags: list[str], display_order_df: pd.DataFrame | None) -> list[str]:
     """Reorders `tags` per the "Results Layout" / display_column_order
     sheet's "Preferred columns" list (see ColumnOrderEditor.tsx) — every
