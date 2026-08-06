@@ -4,15 +4,16 @@ backend/app/services/project_service.py
 Persists the one genuine state gap in the existing codebase: preprocessed
 train/test split arrays, fitted scalers, and the x_cols/y_cols selection
 that Streamlit only ever held in st.session_state between the Preprocess
-and Train steps. Persisted to artifacts/<project_id>/, mirroring the exact
+and Train steps. Persisted to artifacts/<case_id>/<project_id>/ (flat
+artifacts/<project_id>/ for the default case), mirroring the exact
 directory-per-artifact + metadata convention src.persistence.model_store
-already uses for saved_models/<name>/ — a backend-owned filesystem
-convention, not a new database table, so src/data/database.py stays
-untouched. See §2 ("Identifiers") of the migration plan.
+already uses for saved_models/<case_id>/<name>/ — a backend-owned
+filesystem convention, not a new database table, so src/data/database.py's
+schema stays untouched. See §2 ("Identifiers") of the migration plan.
 
-Every later page (Train, Predict) takes an explicit project_id and reloads
-these artifacts fresh from disk — nothing is cached in server memory
-between requests.
+Every later page (Train, Predict) takes an explicit project_id (+ case_id)
+and reloads these artifacts fresh from disk — nothing is cached in server
+memory between requests.
 """
 from __future__ import annotations
 
@@ -28,7 +29,19 @@ import numpy as np
 import pandas as pd
 from fastapi import HTTPException
 
+from src.data.database import DEFAULT_CASE_ID
+
 PROJECT_DIR = "artifacts"
+
+
+def _case_project_dir(case_id: str) -> str:
+    """artifacts/ scoped to case_id, mirroring
+    src/persistence/model_store.py::case_model_dir() exactly: the default
+    case always uses the flat, un-nested PROJECT_DIR; any other case_id
+    uses PROJECT_DIR/<case_id>."""
+    if case_id == DEFAULT_CASE_ID:
+        return PROJECT_DIR
+    return os.path.join(PROJECT_DIR, case_id)
 
 
 @dataclass
@@ -59,9 +72,10 @@ def create_project(
     scaler_x: Any,
     scaler_y: Any,
     config: Dict[str, Any],
+    case_id: str = DEFAULT_CASE_ID,
 ) -> str:
     project_id = uuid.uuid4().hex[:12]
-    path = os.path.join(PROJECT_DIR, project_id)
+    path = os.path.join(_case_project_dir(case_id), project_id)
     os.makedirs(path, exist_ok=True)
 
     np.save(os.path.join(path, "X_train.npy"), X_train)
@@ -91,8 +105,8 @@ def create_project(
     return project_id
 
 
-def load_project(project_id: str) -> ProjectArtifacts:
-    path = os.path.join(PROJECT_DIR, project_id)
+def load_project(project_id: str, case_id: str = DEFAULT_CASE_ID) -> ProjectArtifacts:
+    path = os.path.join(_case_project_dir(case_id), project_id)
     meta_path = os.path.join(path, "metadata.json")
     if not os.path.exists(meta_path):
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
@@ -123,12 +137,13 @@ def load_project(project_id: str) -> ProjectArtifacts:
     )
 
 
-def list_projects() -> List[dict]:
-    if not os.path.isdir(PROJECT_DIR):
+def list_projects(case_id: str = DEFAULT_CASE_ID) -> List[dict]:
+    case_dir = _case_project_dir(case_id)
+    if not os.path.isdir(case_dir):
         return []
     projects = []
-    for name in os.listdir(PROJECT_DIR):
-        meta_path = os.path.join(PROJECT_DIR, name, "metadata.json")
+    for name in os.listdir(case_dir):
+        meta_path = os.path.join(case_dir, name, "metadata.json")
         if os.path.exists(meta_path):
             try:
                 with open(meta_path) as fh:

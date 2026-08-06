@@ -7,24 +7,32 @@ Each uploaded dataset is serialised as Parquet (via pyarrow) and stored as a
 BLOB in the ``datasets`` table.  This lets users switch between datasets
 without re-uploading files on every session restart.
 
+Datasets are isolated per What-If "case" (see whatif_cases below) — a
+dataset uploaded while case A is active is invisible to case B, and the two
+may reuse the same name independently (see _migrate_datasets_case_scoping()).
+
 Schema
 ------
 datasets(
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT    UNIQUE,
+    name        TEXT,
     upload_time TEXT,
     num_rows    INTEGER,
     num_cols    INTEGER,
-    data        BLOB
+    data        BLOB,
+    plant       TEXT,
+    unit        TEXT,
+    case_id     TEXT NOT NULL DEFAULT 'default',
+    UNIQUE(case_id, name)
 )
 
 Public API
 ----------
 init_db()
-save_dataset_to_db(name, df)
-list_datasets_from_db()          → list[tuple]
-load_dataset_from_db(name)       → DataFrame | None
-delete_dataset_from_db(name)
+save_dataset_to_db(name, df, case_id=DEFAULT_CASE_ID)
+list_datasets_from_db(case_id=DEFAULT_CASE_ID)          → list[tuple]
+load_dataset_from_db(name, case_id=DEFAULT_CASE_ID)     → DataFrame | None
+delete_dataset_from_db(name, case_id=DEFAULT_CASE_ID)
 """
 from __future__ import annotations
 
@@ -57,6 +65,36 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: s
     cols = [row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
     if column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
+def _migrate_datasets_case_scoping(conn: sqlite3.Connection) -> None:
+    """One-time schema rebuild: datasets.name was UNIQUE globally, but two
+    different cases legitimately want to reuse the same dataset name (e.g.
+    re-uploading "YANPET_Data.xlsx" fresh into every new case) -- the
+    uniqueness needs to move to (case_id, name). SQLite can't ALTER a
+    UNIQUE constraint in place, so this rebuilds the table: reconstruct
+    every existing column from PRAGMA table_info (so plant/unit, added via
+    _ensure_column further up, come along automatically) plus a new
+    case_id column, copy every existing row across as case_id='default'
+    (zero data movement for existing installs), drop the old table, rename.
+    Guarded by checking whether case_id already exists, so this only ever
+    runs once per database."""
+    info = conn.execute("PRAGMA table_info(datasets)").fetchall()
+    existing_cols = [row[1] for row in info]
+    if "case_id" in existing_cols:
+        return  # already migrated
+
+    col_defs = [
+        f"{name} {coltype} PRIMARY KEY AUTOINCREMENT" if pk else f"{name} {coltype}"
+        for (_cid, name, coltype, _notnull, _dflt, pk) in info
+    ]
+    col_defs.append(f"case_id TEXT NOT NULL DEFAULT '{DEFAULT_CASE_ID}'")
+    col_list = ", ".join(existing_cols)
+
+    conn.execute(f"CREATE TABLE datasets_new ({', '.join(col_defs)}, UNIQUE(case_id, name))")
+    conn.execute(f"INSERT INTO datasets_new ({col_list}) SELECT {col_list} FROM datasets")
+    conn.execute("DROP TABLE datasets")
+    conn.execute("ALTER TABLE datasets_new RENAME TO datasets")
 
 
 def init_db() -> None:
@@ -97,6 +135,7 @@ def init_db() -> None:
         # fixed-width DataFrame from it) — see list_datasets_with_metadata().
         _ensure_column(conn, "datasets", "plant", "TEXT")
         _ensure_column(conn, "datasets", "unit", "TEXT")
+        _migrate_datasets_case_scoping(conn)
         # Train-set metrics, added alongside the original test-set avg_r2/
         # avg_rmse/avg_mae so overfitting is visible without a live,
         # leakage-prone recompute (see overview_service.py's retired
@@ -180,16 +219,19 @@ def _sanitize_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def save_dataset_to_db(
-    name: str, df: pd.DataFrame, plant: Optional[str] = None, unit: Optional[str] = None
+    name: str, df: pd.DataFrame, plant: Optional[str] = None, unit: Optional[str] = None,
+    case_id: str = DEFAULT_CASE_ID,
 ) -> None:
     """
-    Upsert a DataFrame into the database.
+    Upsert a DataFrame into the database, scoped to case_id.
 
-    If a dataset with the same *name* already exists it is replaced
-    (INSERT OR REPLACE semantics) — note this also resets plant/unit to
-    whatever is passed (or NULL if omitted), since REPLACE rewrites the
-    whole row; existing callers that omit plant/unit are unaffected in
-    practice since re-uploading the exact same filename is rare.
+    If a dataset with the same *(case_id, name)* already exists it is
+    replaced (INSERT OR REPLACE semantics) — note this also resets
+    plant/unit to whatever is passed (or NULL if omitted), since REPLACE
+    rewrites the whole row; existing callers that omit plant/unit are
+    unaffected in practice since re-uploading the exact same filename into
+    the same case is rare. The same name in a *different* case_id is a
+    separate row entirely (see _migrate_datasets_case_scoping()).
     """
     blob = _sanitize_for_parquet(df).to_parquet()
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -197,29 +239,30 @@ def save_dataset_to_db(
         conn.execute(
             """
             INSERT OR REPLACE INTO datasets
-                (name, upload_time, num_rows, num_cols, data, plant, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (name, upload_time, num_rows, num_cols, data, plant, unit, case_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (name, now, len(df), len(df.columns), blob, plant, unit),
+            (name, now, len(df), len(df.columns), blob, plant, unit, case_id),
         )
         conn.commit()
 
 
-def list_datasets_from_db() -> List[Tuple]:
+def list_datasets_from_db(case_id: str = DEFAULT_CASE_ID) -> List[Tuple]:
     """
-    Return summary rows ordered by most recently uploaded.
+    Return summary rows for case_id ordered by most recently uploaded.
 
     Each row is ``(name, upload_time, num_rows, num_cols)``.
     """
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             "SELECT name, upload_time, num_rows, num_cols "
-            "FROM datasets ORDER BY upload_time DESC"
+            "FROM datasets WHERE case_id = ? ORDER BY upload_time DESC",
+            (case_id,),
         ).fetchall()
     return rows
 
 
-def list_datasets_with_metadata() -> List[Tuple]:
+def list_datasets_with_metadata(case_id: str = DEFAULT_CASE_ID) -> List[Tuple]:
     """
     Like list_datasets_from_db(), plus Plant/System-Unit metadata.
 
@@ -231,22 +274,24 @@ def list_datasets_with_metadata() -> List[Tuple]:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             "SELECT name, upload_time, num_rows, num_cols, plant, unit "
-            "FROM datasets ORDER BY upload_time DESC"
+            "FROM datasets WHERE case_id = ? ORDER BY upload_time DESC",
+            (case_id,),
         ).fetchall()
     return rows
 
 
-def load_dataset_from_db(name: str) -> Optional[pd.DataFrame]:
+def load_dataset_from_db(name: str, case_id: str = DEFAULT_CASE_ID) -> Optional[pd.DataFrame]:
     """
-    Retrieve a DataFrame by name.
+    Retrieve a DataFrame by (name, case_id).
 
-    Returns ``None`` if the name is not found or if the stored Parquet blob is
-    incompatible with the current PyArrow version (e.g. saved by an older
-    version).  Callers should surface the None case to the user.
+    Returns ``None`` if the name is not found in this case or if the stored
+    Parquet blob is incompatible with the current PyArrow version (e.g.
+    saved by an older version). Callers should surface the None case to the
+    user.
     """
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
-            "SELECT data FROM datasets WHERE name = ?", (name,)
+            "SELECT data FROM datasets WHERE name = ? AND case_id = ?", (name, case_id)
         ).fetchone()
     if row:
         try:
@@ -256,10 +301,10 @@ def load_dataset_from_db(name: str) -> Optional[pd.DataFrame]:
     return None
 
 
-def delete_dataset_from_db(name: str) -> None:
-    """Remove a dataset record (and its Parquet blob) by name."""
+def delete_dataset_from_db(name: str, case_id: str = DEFAULT_CASE_ID) -> None:
+    """Remove a dataset record (and its Parquet blob) by (name, case_id)."""
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("DELETE FROM datasets WHERE name = ?", (name,))
+        conn.execute("DELETE FROM datasets WHERE name = ? AND case_id = ?", (name, case_id))
         conn.commit()
 
 

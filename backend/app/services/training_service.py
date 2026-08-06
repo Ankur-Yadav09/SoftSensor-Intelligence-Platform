@@ -152,7 +152,7 @@ def prepare_training_job(
     if algorithm not in ALGORITHMS:
         raise ValueError(f"Unknown algorithm '{algorithm}'. Expected one of {ALGORITHMS}.")
 
-    project = project_service.load_project(project_id)  # unchanged, 404s via HTTPException
+    project = project_service.load_project(project_id, case_id)  # 404s via HTTPException
 
     if algorithm == "DAE":
         def target(progress_callback=None, status_callback=None):

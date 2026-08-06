@@ -2,7 +2,8 @@
 backend/app/services/dataset_service.py
 ==========================================
 Thin adapter over src.data.database — every function is parameterized by an
-explicit dataset `name` (the existing UNIQUE key in the `datasets` table).
+explicit dataset `name`, scoped to a `case_id` (the (case_id, name) pair is
+the `datasets` table's real key — see database.py's module docstring).
 There is no "active dataset" concept here: nothing is cached in this
 process between requests. See §2 ("Identifiers") of the migration plan.
 """
@@ -16,6 +17,7 @@ import pandas as pd
 from fastapi import HTTPException, UploadFile
 
 from src.data.database import (
+    DEFAULT_CASE_ID,
     delete_dataset_from_db,
     list_datasets_from_db,
     list_datasets_with_metadata,
@@ -43,8 +45,8 @@ def _row_to_summary(row: tuple) -> DatasetSummary:
     )
 
 
-def _find_summary(name: str) -> DatasetSummary:
-    for row in list_datasets_with_metadata():
+def _find_summary(name: str, case_id: str = DEFAULT_CASE_ID) -> DatasetSummary:
+    for row in list_datasets_with_metadata(case_id):
         if row[0] == name:
             return _row_to_summary(row)
     raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found.")
@@ -55,6 +57,7 @@ async def upload_dataset(
     dataset_name: Optional[str] = None,
     plant: Optional[str] = None,
     unit: Optional[str] = None,
+    case_id: str = DEFAULT_CASE_ID,
 ) -> DatasetSummary:
     file_bytes = await file.read()
     filename = file.filename or "upload"
@@ -69,17 +72,17 @@ async def upload_dataset(
         ) from exc
 
     resolved_name = dataset_name or filename
-    save_dataset_to_db(resolved_name, df, plant=plant, unit=unit)  # src.data.database — unchanged, plant/unit are new optional kwargs
-    return _find_summary(resolved_name)
+    save_dataset_to_db(resolved_name, df, plant=plant, unit=unit, case_id=case_id)
+    return _find_summary(resolved_name, case_id)
 
 
-def list_datasets() -> list[DatasetSummary]:
-    return [_row_to_summary(row) for row in list_datasets_with_metadata()]
+def list_datasets(case_id: str = DEFAULT_CASE_ID) -> list[DatasetSummary]:
+    return [_row_to_summary(row) for row in list_datasets_with_metadata(case_id)]
 
 
-def get_dataset_preview(name: str) -> DatasetPreview:
-    _find_summary(name)  # 404 if unknown, before touching the (possibly large) blob
-    df = load_dataset_from_db(name)  # src.data.database — unchanged
+def get_dataset_preview(name: str, case_id: str = DEFAULT_CASE_ID) -> DatasetPreview:
+    _find_summary(name, case_id)  # 404 if unknown, before touching the (possibly large) blob
+    df = load_dataset_from_db(name, case_id)
     if df is None:
         raise HTTPException(
             status_code=422,
@@ -101,6 +104,6 @@ def get_dataset_preview(name: str) -> DatasetPreview:
     )
 
 
-def delete_dataset(name: str) -> None:
-    _find_summary(name)  # 404 if unknown
-    delete_dataset_from_db(name)  # src.data.database — unchanged
+def delete_dataset(name: str, case_id: str = DEFAULT_CASE_ID) -> None:
+    _find_summary(name, case_id)  # 404 if unknown
+    delete_dataset_from_db(name, case_id)

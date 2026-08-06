@@ -38,6 +38,15 @@ const CASE_SCOPED_QUERY_KEYS = [
   'whatif-target-section',
   'whatif-detected-counts',
   'overview',
+  // Datasets/projects are now fully case-isolated too (Connect Data/Data
+  // Health/Model Definition/Build Model) -- these two are the unparameterized
+  // list-level queries, so they need explicit invalidation on switch. Queries
+  // parameterized by dataset/project name (e.g. ['preprocess-stats', name])
+  // don't need it here: once ActiveDatasetContext/ActiveProjectContext
+  // re-derive their value for the new case (see those files), the query key
+  // itself changes and/or its `enabled: !!name` guard turns off.
+  'datasets',
+  'projects',
 ]
 
 const GUIDE_SECTIONS = [

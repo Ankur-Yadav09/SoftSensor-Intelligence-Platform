@@ -41,7 +41,7 @@ def run_predict(
     if source == "project_test":
         if not project_id:
             raise HTTPException(status_code=422, detail="project_id is required when source='project_test'.")
-        project = project_service.load_project(project_id)  # unchanged, 404s on unknown id
+        project = project_service.load_project(project_id, case_id)
         X_scaled = project.X_test
         X_display = pd.DataFrame(scaler_x.inverse_transform(X_scaled), columns=project.x_cols)
         actual_df = project.y_test_raw.reset_index(drop=True)
@@ -51,7 +51,7 @@ def run_predict(
     elif source == "dataset":
         if not dataset_name:
             raise HTTPException(status_code=422, detail="dataset_name is required when source='dataset'.")
-        df = load_dataset_from_db(dataset_name)  # unchanged
+        df = load_dataset_from_db(dataset_name, case_id)
         if df is None:
             raise HTTPException(status_code=422, detail=f"Dataset '{dataset_name}' could not be loaded.")
         if row_start is not None or row_end is not None:

@@ -90,6 +90,21 @@ _historian_cache: Dict[str, Dict[str, Any]] = {}
 _historian_cache_lock = threading.Lock()
 
 
+def _empty_historian() -> pd.DataFrame:
+    """A brand-new case has no historian workbook on disk yet -- same
+    "nothing saved yet, not an error" reasoning as _empty_config(): the
+    caller shouldn't have to distinguish "this case has no data" from a
+    genuine failure, and a 404 here left React Query's cached `data` from
+    whichever case was active before untouched (queries don't clear `data`
+    on error), which is exactly why "Model Definition" kept showing the
+    previous case's rows via get_model_mapping()'s df.columns read below.
+    src/whatif/historian.py::load_process_data() has no empty-shape path of
+    its own (it raises if a real file parses to zero valid-timestamp rows),
+    so this mirrors its actual output shape by hand: indexed by an empty
+    DatetimeIndex named "Timestamp", no columns."""
+    return pd.DataFrame(index=pd.DatetimeIndex([], name="Timestamp"))
+
+
 def _load_historian(case_id: str = DEFAULT_CASE_ID) -> pd.DataFrame:
     """Cached by (case_id, path, mtime): the historian is a ~7000-row/194-column
     Excel file that takes several seconds to parse via openpyxl on every
@@ -101,7 +116,7 @@ def _load_historian(case_id: str = DEFAULT_CASE_ID) -> pd.DataFrame:
     future retrain phase), since the check is keyed on mtime, not just path."""
     path = paths.historian_file(case_id)
     if not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail=f"Historian file not found at {path}")
+        return _empty_historian()
     mtime = os.path.getmtime(path)
     with _historian_cache_lock:
         entry = _historian_cache.get(case_id)
@@ -511,7 +526,11 @@ _corr_cache_lock = threading.Lock()
 def get_correlation_matrix(case_id: str = DEFAULT_CASE_ID) -> schemas.CorrelationMatrixResponse:
     path = paths.training_workbook(case_id)
     if not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail=f"Training dataset not found at {path}")
+        # No training workbook uploaded for this case yet -- same "not an
+        # error" treatment as _load_historian()/_load_config(): an empty
+        # matrix, not a 404 that would otherwise leave stale cached data
+        # from a previously-active case on screen.
+        return schemas.CorrelationMatrixResponse(columns=[], matrix=[], n_rows=0)
     mtime = os.path.getmtime(path)
     with _corr_cache_lock:
         entry = _corr_cache.get(case_id)
