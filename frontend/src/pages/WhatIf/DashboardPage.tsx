@@ -109,7 +109,7 @@ export function DashboardPage() {
       </div>
 
       <div className="card" style={{ padding: '1.5rem' }}>
-        <h3 style={{ marginTop: 0 }}>🕐 Timestamp &amp; Baseline</h3>
+        <h3 style={{ marginTop: 0 }}>🕐 Baseline Process Snapshot</h3>
         <TimestampSelector
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
@@ -136,7 +136,7 @@ export function DashboardPage() {
               ? 'Processing…'
               : `🚀 Compute What-If Scenario (${nOverrides} override${nOverrides === 1 ? '' : 's'} active)`}
           </button>
-          {!selectedTimestamp && <span className="caption">Pick a Process Snapshot Timestamp above first.</span>}
+          {!selectedTimestamp && <span className="caption">Pick an Available Snapshot Time above first.</span>}
         </div>
         {scenarioMutation.isError && (
           <div style={{ marginTop: '0.75rem' }}>

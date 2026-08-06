@@ -54,7 +54,7 @@ const GUIDE_SECTIONS = [
     title: '🔧 System Config',
     items: [
       'Process Flow Order — plant sections in actual sequence, plus which one this case targets.',
-      'PI Tag Mapping — raw PI tag → readable name → section.',
+      'PI Tag Mapping — raw PI tag → readable name → section. Fill it in according to the Process Flow Order, and upload your training/historian data in that same tag order too.',
       'Input Tag Configuration (MV/DV/CV) (optional) — prioritized inputs for Model Mapping.',
     ],
   },

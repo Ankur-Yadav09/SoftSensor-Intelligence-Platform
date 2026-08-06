@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getBaseline } from '../../api/whatIf'
 import { DataTable } from '../../components/DataTable'
 
@@ -13,8 +13,15 @@ export function BaselineValuesPanel({ timestamp, tags }: BaselineValuesPanelProp
   const query = useQuery({
     queryKey: ['whatif-baseline', timestamp, tags],
     queryFn: () => getBaseline(timestamp, tags),
-    enabled: open && !!timestamp,
+    enabled: !!timestamp,
   })
+
+  // Auto-expand every time a new snapshot is confirmed, so the values load
+  // and display immediately instead of waiting on a manual toggle click —
+  // still collapsible afterward if the user wants the space back.
+  useEffect(() => {
+    if (timestamp) setOpen(true)
+  }, [timestamp])
 
   const rows = query.data ? Object.entries(query.data).map(([parameter, value]) => ({ parameter, value })) : []
 

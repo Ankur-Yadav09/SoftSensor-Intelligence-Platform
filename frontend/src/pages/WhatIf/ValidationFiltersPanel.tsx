@@ -16,6 +16,18 @@ interface FilterEntry {
   max: number
 }
 
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000
+}
+
+// Same "round numbers, leave everything else alone" convention as
+// ActualVsEstimatedTable.tsx's fmt() — historian values often carry many
+// more decimals than are meaningful to read.
+function fmt(value: unknown): string {
+  if (typeof value === 'number') return value.toFixed(3)
+  return value == null ? '' : String(value)
+}
+
 // This is where Streamlit's st.sidebar "Validation Filters" panel lives in
 // the React app — placed directly above the historical validation table it
 // feeds, since the app's actual Sidebar is reserved for top-level nav.
@@ -42,7 +54,9 @@ export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection 
     const values = (allQuery.data?.rows ?? [])
       .map((r) => Number(r[tag]))
       .filter((v) => !Number.isNaN(v))
-    return values.length ? { min: Math.min(...values), max: Math.max(...values) } : { min: 0, max: 0 }
+    return values.length
+      ? { min: round3(Math.min(...values)), max: round3(Math.max(...values)) }
+      : { min: 0, max: 0 }
   }
 
   function addFilter() {
@@ -156,7 +170,7 @@ export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection 
             <DataTable
               columns={allTags.map((tag) => ({
                 header: tag,
-                render: (r: Record<string, unknown>) => String(r[tag] ?? ''),
+                render: (r: Record<string, unknown>) => fmt(r[tag]),
               }))}
               rows={results.rows}
               keyFn={(r) => String(r.Timestamp)}
