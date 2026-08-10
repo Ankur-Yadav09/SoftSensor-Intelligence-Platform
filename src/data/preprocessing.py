@@ -54,15 +54,44 @@ OutlierMethod = Literal[
 
 def cast_to_numeric(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Force all object-dtype columns to numeric.
+    Force all object-dtype columns to numeric -- except ones that actually
+    read as dates/timestamps (e.g. "Timestamp": "2025-01-22 10:00:00"),
+    which get converted to a real datetime64 column instead.
 
-    Values that cannot be coerced become NaN.  This fixes issues where
-    sensor data is accidentally parsed as text by openpyxl.
+    Without this exception, a text timestamp column can't be parsed as a
+    number at all, so every value became NaN and the column looked 100%
+    missing -- which then got silently dropped by Automated/Basic
+    Preprocessing's "remove high-missing columns" step (a real, observed
+    bug, not hypothetical). datetime64 is deliberately not float:
+    pandas' own select_dtypes(include=[np.number]) already excludes it, so
+    every numeric-only step downstream (missing/constant/near-zero-variance
+    column drops, imputation, outlier capping) naturally leaves a timestamp
+    column alone with no special-casing needed at those call sites.
+
+    A column only qualifies as a timestamp if most of its values parse as
+    dates AND most don't already parse cleanly as plain numbers -- this
+    keeps a genuinely numeric column (e.g. one full of small integers,
+    which pandas can also technically read as dates) from being
+    misclassified.
+
+    Values that cannot be coerced (numeric or datetime) become NaN.  This
+    fixes issues where sensor data is accidentally parsed as text by
+    openpyxl.
     """
     df = df.copy()
     for col in df.columns:
-        if df[col].dtype == "object":
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+        if df[col].dtype != "object":
+            continue
+        series = df[col]
+        non_null = series.dropna()
+        if not non_null.empty:
+            numeric_frac = pd.to_numeric(non_null, errors="coerce").notna().mean()
+            if numeric_frac <= 0.5:
+                datetime_frac = pd.to_datetime(non_null, errors="coerce").notna().mean()
+                if datetime_frac > 0.8:
+                    df[col] = pd.to_datetime(series, errors="coerce")
+                    continue
+        df[col] = pd.to_numeric(series, errors="coerce")
     return df
 
 
@@ -76,16 +105,33 @@ def compute_feature_stats(df: pd.DataFrame) -> pd.DataFrame:
     Return a per-column statistics DataFrame suitable for display.
 
     Columns: Missing Count, Missing %, Min, Mean, Max
+
+    Missing Count/% cover every column, but Min/Mean/Max are computed only
+    over numeric columns (cast_to_numeric() may now leave a real, non-numeric
+    datetime64 "Timestamp"-style column in df -- see its docstring). Since
+    those three Series then only have numeric columns in their index,
+    combining them into one DataFrame here naturally leaves a non-numeric
+    column's Min/Mean/Max as NaN, exactly like before that function's fix --
+    this is what the frontend's "numeric columns" derivation (Data Health /
+    Data Understanding, filtering on Mean !== null) already depends on.
+
+    That same index mismatch (Missing Count/% indexed by every column, Min/
+    Mean/Max only by numeric ones) makes pandas silently re-sort the
+    combined DataFrame's row order alphabetically instead of keeping the
+    dataset's actual column order -- reindex back to df.columns explicitly
+    so Data Health's feature table still lists features in upload order.
     """
-    return pd.DataFrame(
+    numeric_df = df.select_dtypes(include=[np.number])
+    stats = pd.DataFrame(
         {
             "Missing Count": df.isnull().sum(),
             "Missing %": (df.isnull().sum() / len(df) * 100).round(2),
-            "Min": df.min(),
-            "Mean": df.mean(),
-            "Max": df.max(),
+            "Min": numeric_df.min(),
+            "Mean": numeric_df.mean(),
+            "Max": numeric_df.max(),
         }
     )
+    return stats.reindex(df.columns)
 
 
 # ---------------------------------------------------------------------------

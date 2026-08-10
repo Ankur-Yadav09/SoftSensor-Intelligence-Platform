@@ -92,10 +92,20 @@ def get_dataset_preview(name: str, case_id: str = DEFAULT_CASE_ID) -> DatasetPre
                 "and re-upload the file."
             ),
         )
-    head = df.head(10)
+    head = df.head(10).copy()
+    # A dataset that's been through Automated/Basic Preprocessing may carry a
+    # real datetime64 column (cast_to_numeric() now preserves e.g.
+    # "Timestamp" as one instead of destroying it -- see its docstring in
+    # src/data/preprocessing.py). Format those as plain "YYYY-MM-DD HH:MM:SS"
+    # strings before JSON-encoding, rather than the verbose ISO-with-
+    # milliseconds pandas' to_json(date_format="iso") would otherwise
+    # produce (e.g. "2025-01-01T00:00:00.000") -- .where(...) keeps a
+    # missing timestamp as null instead of the literal string "NaT".
+    for col in head.select_dtypes(include=["datetime64"]).columns:
+        head[col] = head[col].dt.strftime("%Y-%m-%d %H:%M:%S").where(head[col].notna(), None)
     # NaN/NaT/numpy scalars aren't directly JSON-serializable — round-trip
     # through pandas' own JSON encoder, which already handles all of this.
-    head_records = json.loads(head.to_json(orient="records", date_format="iso"))
+    head_records = json.loads(head.to_json(orient="records"))
     return DatasetPreview(
         name=name,
         shape=list(df.shape),

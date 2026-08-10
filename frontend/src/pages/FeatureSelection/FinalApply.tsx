@@ -10,11 +10,18 @@ interface FinalApplyProps {
   datasetName: string
   xCols: string[]
   yCols: string[]
+  /** When set, "Continue" advances the embedding page's own flow instead of
+   * navigating to the standalone Soft Sensor /train route — used when this
+   * component is reused inside What-If Studio's "AI Feature Discovery"
+   * phase (see ModelConfigTab.tsx), where leaving to /train would land on
+   * the full standalone Train/Predict module (Live Prediction tab and all)
+   * instead of staying in the embedded Model Development flow. */
+  onContinue?: () => void
 }
 
 const SPLIT_METHODS = ['Random Split', 'Stratified Split', 'Sequential Split']
 
-export function FinalApply({ datasetName, xCols, yCols }: FinalApplyProps) {
+export function FinalApply({ datasetName, xCols, yCols, onContinue }: FinalApplyProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { setActiveProject } = useActiveProject()
@@ -112,8 +119,8 @@ export function FinalApply({ datasetName, xCols, yCols }: FinalApplyProps) {
             Y target(s). Created project <code>{applyMutation.data.project_id}</code> — {applyMutation.data.n_train}{' '}
             train rows / {applyMutation.data.n_test} test rows.
           </Callout>
-          <button style={{ alignSelf: 'flex-start' }} onClick={() => navigate('/train')}>
-            Continue to Train Model →
+          <button style={{ alignSelf: 'flex-start' }} onClick={() => (onContinue ? onContinue() : navigate('/train'))}>
+            {onContinue ? 'Continue to Build Model →' : 'Continue to Train Model →'}
           </button>
         </div>
       )}

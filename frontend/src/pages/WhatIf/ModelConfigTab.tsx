@@ -103,8 +103,7 @@ export function ModelConfigTab() {
   } else if (devPhase === 'discovery') {
     devContent = (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <FeatureSelectionPage hideStepper />
-        <button onClick={() => setDevPhase('build')}>Continue to Build Model →</button>
+        <FeatureSelectionPage hideStepper onContinue={() => setDevPhase('build')} />
       </div>
     )
   } else {

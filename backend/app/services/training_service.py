@@ -231,6 +231,6 @@ def prepare_training_job(
             scaler_y=project.scaler_y,
             **hyperparameters,
         )
-        return _finish(project, algorithm, wrapper, loss_history, hyperparameters)
+        return _finish(project, algorithm, wrapper, loss_history, hyperparameters, case_id)
 
     return target, "none"

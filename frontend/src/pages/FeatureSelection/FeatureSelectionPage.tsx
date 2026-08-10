@@ -23,9 +23,12 @@ interface FeatureSelectionPageProps {
   // See UploadPage's hideStepper for why: avoids a duplicate progress
   // indicator when this page is embedded inside What-If Studio's tabs.
   hideStepper?: boolean
+  /** Forwarded to FinalApply — see its own onContinue doc for why this
+   * matters when embedded inside What-If Studio's Model Development flow. */
+  onContinue?: () => void
 }
 
-export function FeatureSelectionPage({ hideStepper }: FeatureSelectionPageProps = {}) {
+export function FeatureSelectionPage({ hideStepper, onContinue }: FeatureSelectionPageProps = {}) {
   const { activeDataset: datasetName, setActiveDataset: setDatasetName } = useActiveDataset()
   const [yCols, setYCols] = useState<Set<string>>(new Set())
   const [pathway, setPathway] = useState<Pathway>('automated')
@@ -91,6 +94,7 @@ export function FeatureSelectionPage({ hideStepper }: FeatureSelectionPageProps 
       vif_threshold: vifThreshold,
       per_target: perTarget,
       process_aware: processAware,
+      enabled_methods: [...enabledMethods],
     })
   }
 
@@ -367,7 +371,7 @@ export function FeatureSelectionPage({ hideStepper }: FeatureSelectionPageProps 
                 onSelectAllY={(all) => setYCols(all ? new Set(candidateX) : new Set())}
               />
 
-              <FinalApply datasetName={datasetName} xCols={[...xCols]} yCols={[...yCols]} />
+              <FinalApply datasetName={datasetName} xCols={[...xCols]} yCols={[...yCols]} onContinue={onContinue} />
             </>
           )}
         </>
