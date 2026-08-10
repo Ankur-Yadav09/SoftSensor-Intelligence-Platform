@@ -28,6 +28,16 @@ function fmt(value: unknown): string {
   return value == null ? '' : String(value)
 }
 
+// The backend serializes Timestamp as ISO ("2025-01-22T10:00:00.000") —
+// technically correct but not what a process engineer wants to read at a
+// glance. Reformat to the same plain "YYYY-MM-DD HH:MM:SS" style used
+// everywhere else in What-If Studio (e.g. the snapshot picker).
+function formatTimestamp(value: unknown): string {
+  if (typeof value !== 'string') return String(value ?? '')
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/.exec(value)
+  return m ? `${m[1]} ${m[2]}` : value
+}
+
 // This is where Streamlit's st.sidebar "Validation Filters" panel lives in
 // the React app — placed directly above the historical validation table it
 // feeds, since the app's actual Sidebar is reserved for top-level nav.
@@ -168,10 +178,13 @@ export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection 
             <h4>🔍 Correlated Historical Validation Sets</h4>
             <p className="caption">{results.match_count} matching historical snapshot(s)</p>
             <DataTable
-              columns={allTags.map((tag) => ({
-                header: tag,
-                render: (r: Record<string, unknown>) => fmt(r[tag]),
-              }))}
+              columns={[
+                { header: 'Timestamp', render: (r: Record<string, unknown>) => formatTimestamp(r.Timestamp) },
+                ...allTags.map((tag) => ({
+                  header: tag,
+                  render: (r: Record<string, unknown>) => fmt(r[tag]),
+                })),
+              ]}
               rows={results.rows}
               keyFn={(r) => String(r.Timestamp)}
               maxVisibleRows={8}
