@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from src.data.database import load_dataset_from_db
+from src.data.database import DEFAULT_CASE_ID, load_dataset_from_db
 from src.feature_selection.auto_selector import (
     AutoSelectionResult,
     MethodResult,
@@ -109,6 +109,7 @@ def run_feature_selection_job(
     per_target: bool,
     progress_callback=None,
     process_aware: bool = False,
+    case_id: str = DEFAULT_CASE_ID,
 ) -> dict:
     """
     Target function submitted to the job manager (progress_mode='message').
@@ -118,7 +119,7 @@ def run_feature_selection_job(
     immediate HTTP response, so plain exceptions are used rather than
     HTTPException.
     """
-    df = load_dataset_from_db(dataset_name)
+    df = load_dataset_from_db(dataset_name, case_id)
     if df is None:
         raise ValueError(f"Dataset '{dataset_name}' could not be loaded.")
 

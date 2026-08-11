@@ -16,12 +16,16 @@ from __future__ import annotations
 from src.data.database import (
     DEFAULT_CASE_ID,
     clear_model_selection as _clear_model_selection,
+    delete_model_from_registry,
     list_datasets_from_db,
     list_model_selections,
     list_models_from_registry,
     set_model_selection as _set_model_selection,
 )
-from src.persistence.model_store import list_saved_models as list_saved_models_on_disk
+from src.persistence.model_store import (
+    delete_model_from_disk,
+    list_saved_models as list_saved_models_on_disk,
+)
 
 from backend.app.schemas.datasets import DatasetSummary
 from backend.app.schemas.overview import OverviewResponse, SavedModelSummary
@@ -87,4 +91,26 @@ def clear_model_selection(parameter: str, case_id: str = DEFAULT_CASE_ID) -> Ove
     """Un-pick the selected experiment for parameter, reverting it to the
     dedicated Kalman-filter fallback in src/whatif/engine.py."""
     _clear_model_selection(parameter, case_id)
+    return get_overview(case_id)
+
+
+def delete_model(model_name: str, case_id: str = DEFAULT_CASE_ID) -> OverviewResponse:
+    """Permanently remove a trained experiment — its saved_models/ files and
+    its model_registry row. Also clears any What-If "Selected for What-If
+    Analysis" pointer(s) at model_name, for every parameter it was selected
+    for, so predict_and_update_with_soft_sensor_model() never looks up a
+    model_name that no longer exists on disk (it would otherwise surface as
+    an unhandled FileNotFoundError rather than the graceful LookupError ->
+    Kalman-fallback path engine.py's dispatch already handles)."""
+    registry_row = next(
+        (r for r in list_models_from_registry(case_id) if r["model_name"] == model_name), None
+    )
+    if registry_row is not None:
+        delete_model_from_registry(registry_row["id"])
+
+    for parameter, selected_name in list_model_selections(case_id).items():
+        if selected_name == model_name:
+            _clear_model_selection(parameter, case_id)
+
+    delete_model_from_disk(model_name, case_id)
     return get_overview(case_id)

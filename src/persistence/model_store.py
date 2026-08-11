@@ -30,12 +30,14 @@ Public API
 save_model_to_disk(wrapper, scaler_x, scaler_y, x_cols, y_cols, model_name, case_id=DEFAULT_CASE_ID)
 load_model_from_disk(model_name, case_id=DEFAULT_CASE_ID)  → (wrapper, scaler_x, scaler_y, x_cols, y_cols)
 list_saved_models(case_id=DEFAULT_CASE_ID)                 → list[dict]
+delete_model_from_disk(model_name, case_id=DEFAULT_CASE_ID)
 """
 from __future__ import annotations
 
 import datetime
 import os
 import pickle
+import shutil
 from typing import List, Tuple
 
 import torch
@@ -210,6 +212,17 @@ def load_model_from_disk(
         cols = pickle.load(fh)
 
     return wrapper, scaler_x, scaler_y, cols["x_cols"], cols["y_cols"]
+
+
+# ---------------------------------------------------------------------------
+# Delete
+# ---------------------------------------------------------------------------
+
+
+def delete_model_from_disk(model_name: str, case_id: str = DEFAULT_CASE_ID) -> None:
+    """Remove a saved model's whole directory. A no-op if it's already gone,
+    matching save_model_to_disk's own idempotent spirit."""
+    shutil.rmtree(os.path.join(case_model_dir(case_id), model_name), ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

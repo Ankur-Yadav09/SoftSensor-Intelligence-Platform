@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { listDatasets } from '../../api/datasets'
 import { submitFeatureSelection } from '../../api/featureSelection'
 import { getFeatureStats } from '../../api/preprocess'
@@ -10,6 +10,7 @@ import { StepHeading } from '../../components/StepHeading'
 import { Tabs } from '../../components/Tabs'
 import { WorkflowStepper } from '../../components/WorkflowStepper'
 import { useJobPolling } from '../../hooks/useJobPolling'
+import { DEFAULT_CASE_ID, useActiveCase } from '../../state/ActiveCaseContext'
 import { useActiveDataset } from '../../state/ActiveDatasetContext'
 import { FeatureSelectionResults } from './FeatureSelectionResults'
 import { FinalApply } from './FinalApply'
@@ -18,6 +19,41 @@ import { METHOD_CATEGORIES, METHOD_IDS, METHOD_LABELS } from './methodMeta'
 import type { FeatureSelectionResult } from '../../api/types'
 
 type Pathway = 'configure' | 'automated'
+
+// Persists in-progress Feature Discovery choices (target/candidate columns,
+// pathway, job in flight, ...) across unmount/remount -- ModelConfigTab's
+// Model Development phases fully unmount their content on switch (see its
+// devContent if/else), so without this, navigating to Build Model and back
+// silently reset the whole page to "select Y feature" even though nothing
+// had actually gone wrong. Scoped per case + dataset, same convention as
+// ActiveDatasetContext's storageKeyFor (default case keeps the bare-ish key).
+interface PersistedFeatureDiscoveryState {
+  yCols: string[]
+  xCols: string[]
+  pathway: Pathway
+  topK: number
+  corrThreshold: number
+  vifThreshold: number
+  enabledMethods: string[]
+  perTarget: boolean
+  processAware: boolean
+  jobId: string | null
+}
+
+function storageKeyFor(caseId: string, datasetName: string): string {
+  const base = `softsense.featureDiscovery.${datasetName}`
+  return caseId === DEFAULT_CASE_ID ? base : `${base}.${caseId}`
+}
+
+function loadPersisted(key: string): PersistedFeatureDiscoveryState | null {
+  const raw = localStorage.getItem(key)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as PersistedFeatureDiscoveryState
+  } catch {
+    return null
+  }
+}
 
 interface FeatureSelectionPageProps {
   // See UploadPage's hideStepper for why: avoids a duplicate progress
@@ -29,25 +65,79 @@ interface FeatureSelectionPageProps {
 }
 
 export function FeatureSelectionPage({ hideStepper, onContinue }: FeatureSelectionPageProps = {}) {
+  const { activeCaseId } = useActiveCase()
   const { activeDataset: datasetName, setActiveDataset: setDatasetName } = useActiveDataset()
-  const [yCols, setYCols] = useState<Set<string>>(new Set())
-  const [pathway, setPathway] = useState<Pathway>('automated')
+
+  // storageKey tracks which case+dataset the rest of this state currently
+  // reflects. Restoring on a key change happens synchronously HERE, during
+  // render, rather than in a useEffect -- doing it in an effect (as an
+  // earlier version of this did) raced against the save effect below: React
+  // Strict Mode's dev-only double-invocation of effects on mount ran the
+  // save effect (with its stale, pre-restore closure) BETWEEN the two
+  // invocations of the load effect, clobbering the just-restored data with
+  // blanks before the second invocation ever got a chance to read it back.
+  // Adjusting state during render is React's documented answer to exactly
+  // this: React discards the stale render immediately, without committing
+  // it or running effects for it, so save never observes an inconsistent
+  // (new key, old values) snapshot. See PersistedFeatureDiscoveryState above.
+  const [storageKey, setStorageKey] = useState(() => storageKeyFor(activeCaseId, datasetName))
+  const [yCols, setYCols] = useState<Set<string>>(() => new Set(loadPersisted(storageKey)?.yCols ?? []))
+  const [pathway, setPathway] = useState<Pathway>(() => loadPersisted(storageKey)?.pathway ?? 'automated')
 
   // Configure-pathway settings
-  const [topK, setTopK] = useState(10)
-  const [corrThreshold, setCorrThreshold] = useState(0.85)
-  const [vifThreshold, setVifThreshold] = useState(10.0)
-  const [enabledMethods, setEnabledMethods] = useState<Set<string>>(new Set(METHOD_IDS))
-  const [perTarget, setPerTarget] = useState(false)
+  const [topK, setTopK] = useState(() => loadPersisted(storageKey)?.topK ?? 10)
+  const [corrThreshold, setCorrThreshold] = useState(() => loadPersisted(storageKey)?.corrThreshold ?? 0.85)
+  const [vifThreshold, setVifThreshold] = useState(() => loadPersisted(storageKey)?.vifThreshold ?? 10.0)
+  const [enabledMethods, setEnabledMethods] = useState<Set<string>>(
+    () => new Set(loadPersisted(storageKey)?.enabledMethods ?? METHOD_IDS),
+  )
+  const [perTarget, setPerTarget] = useState(() => loadPersisted(storageKey)?.perTarget ?? false)
   // Generic Feature Selection (default): every candidate X is eligible for
   // every Y. Process-Aware: only X columns appearing BEFORE a given Y in
   // the dataset's original column order are eligible for that Y — modeled
   // server-side (backend/app/services/feature_selection_service.py), this
   // flag just opts in.
-  const [processAware, setProcessAware] = useState(true)
+  const [processAware, setProcessAware] = useState(() => loadPersisted(storageKey)?.processAware ?? true)
 
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [xCols, setXCols] = useState<Set<string>>(new Set())
+  const [jobId, setJobId] = useState<string | null>(() => loadPersisted(storageKey)?.jobId ?? null)
+  const [xCols, setXCols] = useState<Set<string>>(() => new Set(loadPersisted(storageKey)?.xCols ?? []))
+
+  const currentKey = storageKeyFor(activeCaseId, datasetName)
+  if (currentKey !== storageKey) {
+    const persisted = loadPersisted(currentKey)
+    setStorageKey(currentKey)
+    setYCols(new Set(persisted?.yCols ?? []))
+    setXCols(new Set(persisted?.xCols ?? []))
+    setPathway(persisted?.pathway ?? 'automated')
+    setTopK(persisted?.topK ?? 10)
+    setCorrThreshold(persisted?.corrThreshold ?? 0.85)
+    setVifThreshold(persisted?.vifThreshold ?? 10.0)
+    setEnabledMethods(new Set(persisted?.enabledMethods ?? METHOD_IDS))
+    setPerTarget(persisted?.perTarget ?? false)
+    setProcessAware(persisted?.processAware ?? true)
+    setJobId(persisted?.jobId ?? null)
+  }
+
+  // Save on every change so a later remount (e.g. after visiting Build
+  // Model) picks this exact state back up instead of starting over. Keyed
+  // off the `storageKey` state (not a freshly-computed one) so this only
+  // ever fires once storageKey and the rest of the fields agree with each
+  // other -- never mid-transition.
+  useEffect(() => {
+    const payload: PersistedFeatureDiscoveryState = {
+      yCols: [...yCols],
+      xCols: [...xCols],
+      pathway,
+      topK,
+      corrThreshold,
+      vifThreshold,
+      enabledMethods: [...enabledMethods],
+      perTarget,
+      processAware,
+      jobId,
+    }
+    localStorage.setItem(storageKey, JSON.stringify(payload))
+  }, [storageKey, yCols, xCols, pathway, topK, corrThreshold, vifThreshold, enabledMethods, perTarget, processAware, jobId])
 
   const datasetsQuery = useQuery({ queryKey: ['datasets'], queryFn: listDatasets })
   const statsQuery = useQuery({
@@ -68,6 +158,14 @@ export function FeatureSelectionPage({ hideStepper, onContinue }: FeatureSelecti
 
   const jobQuery = useJobPolling(jobId)
   const result = jobQuery.data?.status === 'done' ? (jobQuery.data.result as FeatureSelectionResult) : null
+
+  // A persisted jobId can outlive the job it points to (e.g. the backend
+  // restarted between sessions) — job_manager.py's registry is in-memory
+  // only, so that job_id 404s forever otherwise, polling every 1.5s for
+  // nothing (see useJobPolling's refetchInterval).
+  useEffect(() => {
+    if (jobQuery.isError) setJobId(null)
+  }, [jobQuery.isError])
 
   function toggleY(col: string) {
     const next = new Set(yCols)
@@ -145,11 +243,7 @@ export function FeatureSelectionPage({ hideStepper, onContinue }: FeatureSelecti
           <div className="caption">Dataset</div>
           <select
             value={datasetName}
-            onChange={(e) => {
-              setDatasetName(e.target.value)
-              setYCols(new Set())
-              setJobId(null)
-            }}
+            onChange={(e) => setDatasetName(e.target.value)}
             style={{ minWidth: 320 }}
           >
             <option value="">Select…</option>

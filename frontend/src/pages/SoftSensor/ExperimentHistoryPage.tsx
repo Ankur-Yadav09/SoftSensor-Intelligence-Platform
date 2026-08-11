@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { clearModelSelection, getOverview, selectModelForParameter } from '../../api/overview'
+import { clearModelSelection, deleteModel, getOverview, selectModelForParameter } from '../../api/overview'
 import { Callout } from '../../components/Callout'
 import type { SavedModelSummary } from '../../api/types'
 
@@ -61,9 +61,11 @@ function toExperimentRows(models: SavedModelSummary[]): ExperimentRow[] {
 // across every training run) and the model-selection page for What-If
 // Analysis: "Use for What-If Analysis" marks one experiment per Predicted
 // Parameter as the model What-If Analysis will actually run — see
-// src/whatif/engine.py::predict_and_update_with_soft_sensor_model. Nothing
-// here is ever deleted; every past experiment stays visible for comparison
-// even after a different one is selected.
+// src/whatif/engine.py::predict_and_update_with_soft_sensor_model. Every
+// past experiment stays visible for comparison even after a different one
+// is selected, until explicitly deleted via the 🗑️ button (which removes
+// it everywhere — all its rows here, plus any What-If selection pointing
+// at it — since one model can appear under several Predicted Parameters).
 export function ExperimentHistoryPage() {
   const queryClient = useQueryClient()
   const overviewQuery = useQuery({ queryKey: ['overview'], queryFn: getOverview })
@@ -78,6 +80,22 @@ export function ExperimentHistoryPage() {
     mutationFn: (parameter: string) => clearModelSelection(parameter),
     onSuccess: (data) => queryClient.setQueryData(['overview'], data),
   })
+  const deleteMutation = useMutation({
+    mutationFn: (modelName: string) => deleteModel(modelName),
+    onSuccess: (data) => queryClient.setQueryData(['overview'], data),
+  })
+
+  function handleDelete(model: SavedModelSummary) {
+    const scopeWarning =
+      model.y_cols.length > 1
+        ? ` It's used for ${model.y_cols.length} predicted parameters (${model.y_cols.join(', ')}) — all of them will lose this experiment.`
+        : ''
+    const selectedWarning = model.selected_for.length > 0 ? ' It is currently selected for What-If Analysis — that selection will be cleared.' : ''
+    const ok = window.confirm(
+      `Permanently delete experiment "${model.name}"? This cannot be undone.${scopeWarning}${selectedWarning}`,
+    )
+    if (ok) deleteMutation.mutate(model.name)
+  }
 
   if (overviewQuery.isLoading) return <p className="caption">Loading experiment history…</p>
   if (overviewQuery.isError) return <p className="caption">Failed to load experiment history.</p>
@@ -137,6 +155,7 @@ export function ExperimentHistoryPage() {
                   <th>Test MAE</th>
                   <th>Trained At</th>
                   <th>What-If Analysis</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,6 +164,7 @@ export function ExperimentHistoryPage() {
                   const pending =
                     (selectMutation.isPending && selectMutation.variables?.parameter === parameter) ||
                     (clearMutation.isPending && clearMutation.variables === parameter)
+                  const deleting = deleteMutation.isPending && deleteMutation.variables === m.name
                   return (
                     <tr key={`${parameter}::${m.name}`}>
                       <td>{parameter}</td>
@@ -188,6 +208,16 @@ export function ExperimentHistoryPage() {
                             Use for What-If Analysis
                           </button>
                         )}
+                      </td>
+                      <td>
+                        <button
+                          className="chip"
+                          disabled={deleting}
+                          title="Permanently delete this experiment"
+                          onClick={() => handleDelete(m)}
+                        >
+                          {deleting ? 'Deleting…' : '🗑️ Delete'}
+                        </button>
                       </td>
                     </tr>
                   )
