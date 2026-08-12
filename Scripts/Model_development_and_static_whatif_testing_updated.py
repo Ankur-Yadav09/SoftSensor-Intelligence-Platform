@@ -76,11 +76,11 @@ file_path = _resolve_plant_dir("..\\Data", PLANT_NAME)
 RESULTS_DIR = _resolve_plant_dir("..\\Results", PLANT_NAME)
 RESULTS_MODEL_DIR = os.path.join(RESULTS_DIR, "Model")
 os.makedirs(RESULTS_MODEL_DIR, exist_ok=True)
-# CONFIG_DIR lets the caller (the Streamlit dashboard) point us at a
-# throwaway scratch folder holding the just-uploaded Config_file_updated.xlsx,
-# instead of this plant's persistent Data/<plant>/ folder -- the config
-# is never required to be saved there. Falls back to file_path so this
-# script still runs standalone (outside the dashboard) unchanged.
+# CONFIG_DIR lets the caller point us at a throwaway scratch folder holding
+# a just-uploaded Config_file.xlsx, instead of this plant's persistent
+# Data/<plant>/ folder -- the config is never required to be saved there.
+# Falls back to file_path so this script still runs standalone (outside the
+# dashboard) unchanged.
 CONFIG_DIR = os.environ.get("CONFIG_DIR") or file_path
 print(f"[plant_engine] PLANT_NAME='{PLANT_NAME}'  data='{file_path}'  config='{CONFIG_DIR}'  results='{RESULTS_DIR}'")
 
@@ -406,8 +406,8 @@ elif HAS_FURNACE_DATA and not HAS_PI_DATA:
 # else: HAS_PI_DATA only -> df already holds the PI-data table, nothing to merge.
 
 
-#%% Config file loading 
-config_df_model_details = pd.read_excel(CONFIG_DIR +"/" + "Config_file_updated.xlsx", sheet_name= 'Model details')
+#%% Config file loading
+config_df_model_details = pd.read_excel(CONFIG_DIR + "/" + "Config_file.xlsx", sheet_name='Model details')
 
 #%% Generic Kalman-filter training loop
 # ---------------------------------------------------------------------

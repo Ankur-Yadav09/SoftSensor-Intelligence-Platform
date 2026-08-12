@@ -662,19 +662,27 @@ def _run_training_subprocess(case_id: str = DEFAULT_CASE_ID) -> Dict[str, Any]:
     """Runs the legacy training script exactly as the Streamlit reference did
     (subprocess, cwd=Scripts/ so its "..\\Data"/"..\\Results" relative paths
     resolve to the repo root), then re-checks the artifacts it should have
-    produced. No config write-back: the script reads whatever Model details
-    mapping is currently saved to Data/Config_file.xlsx, same as upstream.
+    produced.
 
-    WHATIF_CASE_ID is passed through for forward-compatibility, but the
-    training script itself still writes to the flat Data/Results layout
-    unconditionally (case-aware retraining needs the Phase 3 script
-    regeneration described in the "Port updated Streamlit logic" plan
-    section, not yet done) — so this only fully works for the default case
-    today; non-default cases will retrain into the wrong folder until that
-    lands."""
+    Case-awareness reuses the script's own pre-existing multi-PLANT_NAME
+    folder resolution (_resolve_plant_dir: prefer Data/<PLANT_NAME> and
+    Results/<PLANT_NAME>, else fall back to the flat layout) — setting
+    PLANT_NAME=<case_id> for a non-default case makes it read/write
+    Data/<case_id>/... and Results/<case_id>/... unchanged, exactly mirroring
+    how every other case-scoped path in this app resolves (see paths.py's
+    _case_dir). The default case leaves PLANT_NAME unset, so it keeps
+    resolving to the original flat Data/Results layout.
+
+    The script reads "<CONFIG_DIR>/Config_file.xlsx" for the Model details
+    sheet — the same single file Data/<case_id>/Config_file.xlsx that What-If
+    Setup's UI itself reads and writes (see config_file()/_load_config()) —
+    so there is exactly one config file per case, always current; no
+    separate "_updated" snapshot/copy step is needed."""
     env = os.environ.copy()
     env["MPLBACKEND"] = "Agg"  # suppress plt.show() pop-ups in a headless subprocess
     env["WHATIF_CASE_ID"] = case_id
+    if case_id != DEFAULT_CASE_ID:
+        env["PLANT_NAME"] = case_id
     proc = subprocess.run(
         [sys.executable, paths.whatif_train_script()],
         cwd=paths.scripts_dir(),

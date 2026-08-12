@@ -86,7 +86,7 @@ def scripts_dir() -> str:
 def whatif_train_script() -> str:
     """Case-independent, matching the Streamlit reference: the training
     script itself isn't per-plant/per-case, only the data it reads/writes is."""
-    return os.path.join(scripts_dir(), "Model_development_and_static_whatif_testing.py")
+    return os.path.join(scripts_dir(), "Model_development_and_static_whatif_testing_updated.py")
 
 
 def new_case_dirs(case_id: str) -> tuple[str, str]:
