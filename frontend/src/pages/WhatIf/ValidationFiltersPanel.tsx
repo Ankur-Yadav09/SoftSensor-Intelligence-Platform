@@ -1,14 +1,23 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { downloadBlob, exportScenarioCsv, runValidationFilter } from '../../api/whatIf'
 import { DataTable } from '../../components/DataTable'
-import type { WhatIfScenarioRow } from '../../api/types'
+import type { ValidationFilterResult, WhatIfScenarioRow } from '../../api/types'
 
 interface ValidationFiltersPanelProps {
   timestamp: string
   scenarioRows: WhatIfScenarioRow[]
   targetSection?: string | null
 }
+
+// Rendering every matching row as real DOM (DataTable has no virtualization)
+// is fine for a genuinely narrowed-down filter result, but with NO filters
+// applied `run_validation_filter` returns the ENTIRE historian unfiltered
+// (~8000 rows on this plant) — that's what was actually making this panel
+// feel sluggish, not the surrounding re-renders. Cap what's rendered; the
+// true match_count is still shown, and export still uses the FULL,
+// un-capped `results.rows` the server already returned.
+const DISPLAY_ROW_CAP = 200
 
 interface FilterEntry {
   tag: string
@@ -38,10 +47,64 @@ function formatTimestamp(value: unknown): string {
   return m ? `${m[1]} ${m[2]}` : value
 }
 
+// Isolated from the filter-editing controls above it and memoized on its own
+// (props stay referentially stable while you're just editing filter
+// criteria — see DISPLAY_ROW_CAP's comment) so typing a Min/Max value or
+// adding/removing a filter row never touches this table until you actually
+// click "Apply Filters".
+const ValidationResultsTable = memo(function ValidationResultsTable({
+  results,
+  allTags,
+  timestamp,
+  scenarioRows,
+}: {
+  results: ValidationFilterResult
+  allTags: string[]
+  timestamp: string
+  scenarioRows: WhatIfScenarioRow[]
+}) {
+  async function exportCsv() {
+    const blob = await exportScenarioCsv(timestamp, scenarioRows, results.rows)
+    downloadBlob(blob, 'filtered_validation_data.csv')
+  }
+
+  const visibleRows = results.rows.slice(0, DISPLAY_ROW_CAP)
+
+  return (
+    <div style={{ marginTop: '1.5rem' }}>
+      <h4>🔍 Correlated Historical Validation Sets</h4>
+      <p className="caption">
+        {results.match_count} matching historical snapshot(s)
+        {results.match_count > DISPLAY_ROW_CAP &&
+          ` — showing the first ${DISPLAY_ROW_CAP} here; narrow your filters to see specific ones, or export for the full set.`}
+      </p>
+      <DataTable
+        columns={[
+          { header: 'Timestamp', render: (r: Record<string, unknown>) => formatTimestamp(r.Timestamp) },
+          ...allTags.map((tag) => ({
+            header: tag,
+            render: (r: Record<string, unknown>) => fmt(r[tag]),
+          })),
+        ]}
+        rows={visibleRows}
+        keyFn={(r) => String(r.Timestamp)}
+        maxVisibleRows={8}
+      />
+      <button className="chip" style={{ marginTop: '1rem' }} onClick={exportCsv}>
+        📥 Export Unified Comparison &amp; Historical Validation Data (.CSV)
+      </button>
+    </div>
+  )
+})
+
 // This is where Streamlit's st.sidebar "Validation Filters" panel lives in
 // the React app — placed directly above the historical validation table it
 // feeds, since the app's actual Sidebar is reserved for top-level nav.
-export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection }: ValidationFiltersPanelProps) {
+//
+// Memoized: this panel is a sibling of SimulationOverridesPanel under
+// DashboardPage — without memo, every override keystroke would re-render it
+// (and, transitively, its results table) for no reason.
+export const ValidationFiltersPanel = memo(function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection }: ValidationFiltersPanelProps) {
   // "+ Add Filter" appends a blank entry; picking a tag for it fills in that
   // tag's historical min/max as a starting range — same "+ Add X" row
   // pattern as ConstraintsEditor/UserInputsEditor, rather than a checkbox
@@ -56,9 +119,16 @@ export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection 
     mutationFn: (body: Record<string, { min: number; max: number }>) => runValidationFilter(body, targetSection),
   })
 
-  const allTags = allQuery.data && allQuery.data.rows.length > 0
-    ? Object.keys(allQuery.data.rows[0]).filter((k) => k !== 'Timestamp')
-    : []
+  // Memoized so its array reference stays stable across renders that don't
+  // touch allQuery.data (e.g. typing a Min/Max value) — otherwise a fresh
+  // array every render would defeat ValidationResultsTable's memo below.
+  const allTags = useMemo(
+    () =>
+      allQuery.data && allQuery.data.rows.length > 0
+        ? Object.keys(allQuery.data.rows[0]).filter((k) => k !== 'Timestamp')
+        : [],
+    [allQuery.data],
+  )
 
   function tagBounds(tag: string): { min: number; max: number } {
     const values = (allQuery.data?.rows ?? [])
@@ -95,12 +165,6 @@ export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection 
   function apply() {
     const body = Object.fromEntries(activeFilters.map((f) => [f.tag, { min: f.min, max: f.max }]))
     filterMutation.mutate(body)
-  }
-
-  async function exportCsv() {
-    if (!results) return
-    const blob = await exportScenarioCsv(timestamp, scenarioRows, results.rows)
-    downloadBlob(blob, 'filtered_validation_data.csv')
   }
 
   return (
@@ -174,27 +238,9 @@ export function ValidationFiltersPanel({ timestamp, scenarioRows, targetSection 
         )}
 
         {results && (
-          <div style={{ marginTop: '1.5rem' }}>
-            <h4>🔍 Correlated Historical Validation Sets</h4>
-            <p className="caption">{results.match_count} matching historical snapshot(s)</p>
-            <DataTable
-              columns={[
-                { header: 'Timestamp', render: (r: Record<string, unknown>) => formatTimestamp(r.Timestamp) },
-                ...allTags.map((tag) => ({
-                  header: tag,
-                  render: (r: Record<string, unknown>) => fmt(r[tag]),
-                })),
-              ]}
-              rows={results.rows}
-              keyFn={(r) => String(r.Timestamp)}
-              maxVisibleRows={8}
-            />
-            <button className="chip" style={{ marginTop: '1rem' }} onClick={exportCsv}>
-              📥 Export Unified Comparison &amp; Historical Validation Data (.CSV)
-            </button>
-          </div>
+          <ValidationResultsTable results={results} allTags={allTags} timestamp={timestamp} scenarioRows={scenarioRows} />
         )}
       </div>
     </details>
   )
-}
+})

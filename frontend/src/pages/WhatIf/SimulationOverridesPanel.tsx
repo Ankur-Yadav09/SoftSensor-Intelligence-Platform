@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 interface SimulationOverridesPanelProps {
   tags: string[]
   limits: Record<string, { lower: number; upper: number }>
@@ -18,6 +20,8 @@ function validate(raw: string, lower: number, upper: number): string | null {
 // the React app — placed directly above the Compute button on the Dashboard
 // page itself, since the app's actual Sidebar is reserved for top-level nav.
 export function SimulationOverridesPanel({ tags, limits, overrides, onChange, onReset }: SimulationOverridesPanelProps) {
+  const [filter, setFilter] = useState('')
+
   if (tags.length === 0) {
     return (
       <div className="card" style={{ padding: '1.5rem' }}>
@@ -28,6 +32,9 @@ export function SimulationOverridesPanel({ tags, limits, overrides, onChange, on
   }
 
   const activeCount = tags.filter((tag) => (overrides[tag] ?? '').trim() !== '').length
+  const visibleTags = filter.trim()
+    ? tags.filter((tag) => tag.toLowerCase().includes(filter.trim().toLowerCase()))
+    : tags
 
   return (
     <div className="card" style={{ padding: '1.5rem' }}>
@@ -48,8 +55,26 @@ export function SimulationOverridesPanel({ tags, limits, overrides, onChange, on
       </div>
       <p className="caption">Enter a target value to override — leave blank to keep the actual (baseline) value.</p>
 
+      {tags.length > 6 && (
+        <input
+          type="text"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="🔍 Filter tags by name…"
+          style={{ width: '100%', maxWidth: 360, marginTop: '0.75rem' }}
+        />
+      )}
+      {filter.trim() && (
+        <p className="caption" style={{ marginTop: '0.35rem' }}>
+          {visibleTags.length} of {tags.length} tag(s) match.
+        </p>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
-        {tags.map((tag) => {
+        {visibleTags.length === 0 && (
+          <p className="caption">No tags match "{filter}".</p>
+        )}
+        {visibleTags.map((tag) => {
           const lim = limits[tag] ?? { lower: 0, upper: 1e6 }
           const raw = overrides[tag] ?? ''
           const error = validate(raw, lim.lower, lim.upper)

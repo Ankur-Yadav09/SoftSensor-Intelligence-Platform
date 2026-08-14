@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { getBaseline } from '../../api/whatIf'
 import { DataTable } from '../../components/DataTable'
 
@@ -8,7 +8,9 @@ interface BaselineValuesPanelProps {
   tags: string[]
 }
 
-export function BaselineValuesPanel({ timestamp, tags }: BaselineValuesPanelProps) {
+// Memoized alongside ActualVsEstimatedTable/ValidationFiltersPanel — see
+// ValidationFiltersPanel.tsx's docstring for why this matters.
+export const BaselineValuesPanel = memo(function BaselineValuesPanel({ timestamp, tags }: BaselineValuesPanelProps) {
   const [open, setOpen] = useState(false)
   const query = useQuery({
     queryKey: ['whatif-baseline', timestamp, tags],
@@ -48,4 +50,4 @@ export function BaselineValuesPanel({ timestamp, tags }: BaselineValuesPanelProp
       )}
     </div>
   )
-}
+})

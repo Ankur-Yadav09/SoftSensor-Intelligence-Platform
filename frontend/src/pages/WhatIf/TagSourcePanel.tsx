@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { MultiSelectDropdown } from '../../components/MultiSelectDropdown'
 import type { TagOptionsResult } from '../../api/types'
 
@@ -13,7 +14,9 @@ const SOURCE_LABEL: Record<string, string> = {
   historian: '🏷️ Dynamic Tag Selection',
 }
 
-export function TagSourcePanel({ tagOptions, selectedTags, onChange }: TagSourcePanelProps) {
+// Memoized alongside ActualVsEstimatedTable/ValidationFiltersPanel — see
+// ValidationFiltersPanel.tsx's docstring for why this matters.
+export const TagSourcePanel = memo(function TagSourcePanel({ tagOptions, selectedTags, onChange }: TagSourcePanelProps) {
   if (!tagOptions) return <p className="caption">Loading tag source…</p>
 
   return (
@@ -40,4 +43,4 @@ export function TagSourcePanel({ tagOptions, selectedTags, onChange }: TagSource
       )}
     </div>
   )
-}
+})

@@ -22,5 +22,6 @@ frontend/dist/
 .DS_Store
 artifacts/
 
-/Data
+Data/
 /mockups
+What-if_Codebase/

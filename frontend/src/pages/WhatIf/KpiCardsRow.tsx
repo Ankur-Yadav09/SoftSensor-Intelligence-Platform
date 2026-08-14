@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type { WhatIfKpi } from '../../api/types'
 
 function fmtNum(val: number, forceSign = false): string {
@@ -31,7 +32,9 @@ function WhatIfKpiCard({ kpi }: { kpi: WhatIfKpi }) {
   )
 }
 
-export function KpiCardsRow({ kpis }: { kpis: WhatIfKpi[] }) {
+// Memoized alongside ActualVsEstimatedTable/ValidationFiltersPanel — see
+// ValidationFiltersPanel.tsx's docstring for why this matters.
+export const KpiCardsRow = memo(function KpiCardsRow({ kpis }: { kpis: WhatIfKpi[] }) {
   // The backend derives this set from the live config (predicted parameters
   // + constrained parameters + the plant plug-in's KPI_PARAMETERS) — see
   // src/whatif/kpi.py::derive_kpi_tags. No client-side tag whitelist here;
@@ -55,4 +58,4 @@ export function KpiCardsRow({ kpis }: { kpis: WhatIfKpi[] }) {
       </div>
     </div>
   )
-}
+})

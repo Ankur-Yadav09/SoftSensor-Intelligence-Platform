@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { DataTable } from '../../components/DataTable'
 import { downloadBlob } from '../../api/whatIf'
 import type { WhatIfScenarioRow } from '../../api/types'
@@ -21,7 +22,11 @@ interface ActualVsEstimatedTableProps {
   rows: WhatIfScenarioRow[]
 }
 
-export function ActualVsEstimatedTable({ timestamp, rows }: ActualVsEstimatedTableProps) {
+// Memoized: this table doesn't depend on Simulation Overrides' typed values
+// at all, but sits as a sibling under the same DashboardPage state — without
+// memo, every keystroke there would re-render (and re-format) this whole
+// table for no reason (see SimulationOverridesPanel.tsx's docstring).
+export const ActualVsEstimatedTable = memo(function ActualVsEstimatedTable({ timestamp, rows }: ActualVsEstimatedTableProps) {
   function exportCsv() {
     const csv = toCsv(timestamp, rows)
     downloadBlob(new Blob([csv], { type: 'text/csv' }), 'WhatIf_Result.csv')
@@ -61,4 +66,4 @@ export function ActualVsEstimatedTable({ timestamp, rows }: ActualVsEstimatedTab
       </button>
     </div>
   )
-}
+})
